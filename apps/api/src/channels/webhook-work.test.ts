@@ -208,6 +208,24 @@ describe('runWebhookWork', () => {
     expect(fastLost).toHaveLength(0);
   });
 
+  test('awaitSettlement holds the caller until the work settles', async () => {
+    const lost: number[] = [];
+    const done = await runWebhookWork('t', async () => {
+      await Bun.sleep(60);
+    }, { ackWaitMs: 20, awaitSettlement: true });
+    expect(done).toBe('done');
+    const outcome = await runWebhookWork(
+      't2',
+      async () => {
+        await Bun.sleep(60);
+        throw new Error('late');
+      },
+      { ackWaitMs: 20, awaitSettlement: true, onLost: () => void lost.push(1) },
+    );
+    expect(outcome).toBe('failed'); // the caller sees the settled outcome, not 'pending'
+    expect(lost).toHaveLength(1);
+  });
+
   test('a redelivery scheduler that itself fails is logged, never thrown', async () => {
     let fail!: () => void;
     const outcome = await runWebhookWork(

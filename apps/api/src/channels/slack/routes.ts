@@ -221,15 +221,22 @@ async function processByoEventCallback(envelope: SlackEnvelope, inbound: Project
   await dispatchSlackEvent(inbound.projectId, envelope, { ownThreadsOnly: true });
 }
 
-/** The redelivery job's in-handler work budget, and the claim visibility that must exceed it. */
+/** The redelivery job's ack-budget warn point, and the claim visibility that must exceed the work's worst run. */
 const SLACK_REDELIVERY_WAIT_MS = 5 * 60_000;
 const SLACK_REDELIVERY_VISIBILITY_MS = 10 * 60_000;
+
+/** The durable-enqueue retry schedule (1 s, 5 s). Tests shrink the waits. */
+export const REDELIVERY_RETRY_DELAYS_MS = [0, 1_000, 5_000];
 
 /**
  * A failure that lands after the ack went out loses the event: the provider got
  * its 2xx and will not redeliver, and releasing the dedup claim schedules
  * nothing. Enqueue the event on the durable job queue (retries with backoff,
  * dead-letters, runbook in integrations/event-inbox.ts) so the work replays.
+ * The enqueue itself is retried: a DB blip must not be the thing that eats the
+ * redelivery. When even the retries fail, the throw is the loss signal — the
+ * same class of loss the 2 s-budget code had on a DB outage, minus Slack's
+ * retries.
  */
 async function enqueueSlackEventRedelivery(envelope: SlackEnvelope, inbound?: SlackInbound): Promise<void> {
   if (!envelope.event_id) {
@@ -237,24 +244,41 @@ async function enqueueSlackEventRedelivery(envelope: SlackEnvelope, inbound?: Sl
     return;
   }
   const projectId = inbound?.kind === 'project' ? inbound.projectId : undefined;
-  const inserted = await emitIntegrationEvent({
-    id: envelope.event_id,
-    source: projectId ? `slack:${projectId}` : 'slack:canonical',
-    type: 'slack.event.redelivery',
-    time: new Date().toISOString(),
-    subject: null,
-    projectId: projectId ?? '',
-    data: { envelope, inbound: inbound ?? null },
-  });
+  const eventId = envelope.event_id;
+  const store = (): Promise<boolean> =>
+    emitIntegrationEvent({
+      id: eventId,
+      source: projectId ? `slack:${projectId}` : 'slack:canonical',
+      type: 'slack.event.redelivery',
+      time: new Date().toISOString(),
+      subject: null,
+      projectId: projectId ?? '',
+      data: { envelope, inbound: inbound ?? null },
+    });
+  let inserted = false;
+  let scheduled = false;
+  for (const delay of REDELIVERY_RETRY_DELAYS_MS) {
+    await Bun.sleep(delay);
+    try {
+      inserted = await store();
+      scheduled = true; // true: queued; false: the (queue, key) exists — scheduled either way
+      break;
+    } catch (err) {
+      logger.error('[slack-webhook] redelivery enqueue attempt failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  if (!scheduled) throw new Error('redelivery enqueue failed after every retry — the event is lost');
   if (inserted) logger.warn('[slack-webhook] event work failed after the ack — durable redelivery queued');
 }
 
 /**
  * Replay one stored event. Runs inside `runWebhookWork` so a failed replay
  * releases its dedup claim (the queue's next attempt must be able to re-take
- * it) and is drain-tracked. `pending` means the work is still running detached;
- * the job then completes and relies on that run. A `failed` throw retries the
- * job with backoff and dead-letters it after its attempts (the runbook above).
+ * it) and is drain-tracked; `awaitSettlement` holds the job open until the work
+ * settles, so a `failed` throw retries the job with backoff and dead-letters it
+ * after its attempts (the runbook above) — a completed job is never retried.
  */
 export async function redeliverSlackEvent(event: IntegrationEvent): Promise<void> {
   const { envelope, inbound } = (event.data ?? {}) as {
@@ -267,7 +291,7 @@ export async function redeliverSlackEvent(event: IntegrationEvent): Promise<void
   const outcome = await runWebhookWork(
     'slack-event-redelivery',
     () => (inbound ? processByoEventCallback(envelope, inbound) : processOauthEventCallback(envelope)),
-    { ackWaitMs: SLACK_REDELIVERY_WAIT_MS },
+    { ackWaitMs: SLACK_REDELIVERY_WAIT_MS, awaitSettlement: true },
   );
   if (outcome === 'failed') throw new Error('slack event redelivery failed — the job queue retries it with backoff');
 }

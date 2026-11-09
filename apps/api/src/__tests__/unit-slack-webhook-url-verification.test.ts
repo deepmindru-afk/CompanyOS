@@ -63,9 +63,15 @@ mock.module('../channels/slack/dispatch', () => ({
 // The durable redelivery inbox: a post-ack failure must enqueue the event here
 // (the job queue retries it), a pre-ack failure must not (Slack retries a 5xx).
 const redeliveries: unknown[] = [];
+/** > 0 makes the next N enqueue attempts throw (a DB blip the retry must survive). */
+let enqueueFailures = 0;
 let slackRedeliveryConsumer: ((event: unknown) => Promise<void>) | null = null;
 mock.module('../integrations/event-inbox', () => ({
   emitIntegrationEvent: async (event: unknown) => {
+    if (enqueueFailures > 0) {
+      enqueueFailures--;
+      throw new Error('enqueue down');
+    }
     redeliveries.push(event);
     return true;
   },
@@ -96,6 +102,7 @@ mock.module('../channels/slack/interactivity', () => ({
 }));
 
 (await import('../channels/slack/routes')).registerSlackWebhookRoutes();
+const { REDELIVERY_RETRY_DELAYS_MS } = await import('../channels/slack/routes');
 const { slackWebhookApp } = await import('../channels/slack/app');
 
 afterAll(() => {
@@ -112,6 +119,7 @@ beforeEach(() => {
   provenTeams = ['T1'];
   slowDispatchMs = 0;
   dispatchFails = false;
+  enqueueFailures = 0;
   redeliveries.length = 0;
 });
 
@@ -258,6 +266,27 @@ describe('a per-project Slack app reaches only the workspace its install proved'
     expect(res.status).toBe(500); // Slack retries a 5xx: that retry is the redelivery
     await new Promise((r) => setTimeout(r, 50));
     expect(redeliveries).toEqual([]);
+  });
+
+  test('a failed enqueue is retried before the redelivery is scheduled', async () => {
+    projectSigningSecret = 'signing-secret';
+    slowDispatchMs = 900;
+    dispatchFails = true;
+    enqueueFailures = 2; // the first two enqueue attempts throw; the third lands
+    REDELIVERY_RETRY_DELAYS_MS.splice(0, REDELIVERY_RETRY_DELAYS_MS.length, 0, 5, 5);
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event_id: 'EvRetry',
+      team_id: 'T1',
+      event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+    });
+    const res = await slackWebhookApp.request(`/${BYO_PROJECT}`, signed(body, 'application/json'));
+    expect(res.status).toBe(200);
+    for (let i = 0; i < 40 && redeliveries.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    expect(redeliveries).toHaveLength(1); // the retry, not the failure, schedules the redelivery
+    REDELIVERY_RETRY_DELAYS_MS.splice(0, REDELIVERY_RETRY_DELAYS_MS.length, 0, 1_000, 5_000);
   });
 
   test('a redelivery replays the stored event through the same dispatch', async () => {

@@ -26,6 +26,11 @@
  * queue (integrations/event-inbox.ts machinery); interactivity and Teams keep
  * their 500-retry window and pass nothing.
  *
+ * A background caller that must not complete while the work runs (the redelivery
+ * job: a completed job is never retried) passes `awaitSettlement`: the budget
+ * then only bounds the ack-budget warn, and the call resolves to the work's
+ * settled outcome.
+ *
  * Not covered: a crash (OOM, SIGKILL) while the work runs. The claim then holds
  * until it expires, and the event is lost.
  */
@@ -90,7 +95,7 @@ function stageFields(): Record<string, number> {
 export async function runWebhookWork(
   label: string,
   work: () => Promise<void>,
-  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: () => Promise<void> | void } = {},
+  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: () => Promise<void> | void; awaitSettlement?: boolean } = {},
 ): Promise<WebhookOutcome> {
   const ackWaitMs = options.ackWaitMs ?? ACK_WAIT_MS;
   const startedAt = Date.now();
@@ -157,6 +162,9 @@ export async function runWebhookWork(
         ackWaitMs,
         ...stageFields(),
       });
+      // A caller that must not complete while the work runs waits it out; the
+      // outcome handlers above have set (or will set) the settled outcome.
+      if (options.awaitSettlement) await running;
     }
   }
   return outcome;
