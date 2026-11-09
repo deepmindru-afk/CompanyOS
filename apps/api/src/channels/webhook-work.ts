@@ -13,6 +13,12 @@
  * Either way the work is registered with the shutdown drain (`shared/drain.ts`),
  * so a deploy waits for it instead of cutting it.
  *
+ * Slow work is loud: when the ack budget elapses the log names the work's
+ * stage split (`dbMs`, `httpMs`) so a p95 rise on a webhook route attributes
+ * to DB stalls, outbound (Slack) latency, or handler compute without tracing
+ * (KRTX-4015: with no line here a >2s work was invisible — the request log
+ * shows only "2002ms").
+ *
  * Not covered: a crash (OOM, SIGKILL) while the work runs. The claim then holds
  * until it expires, and the event is lost.
  */
@@ -22,6 +28,7 @@ import { chatEventDedup } from '@kortix/db';
 import { db } from '../shared/db';
 import { logger } from '../lib/logger';
 import { trackDetached } from '../shared/drain';
+import { stageSnapshot } from '../lib/server-timing';
 
 /** Slack drops a webhook that has not answered after 3 s; stay well under it. */
 export const ACK_WAIT_MS = 2_000;
@@ -44,6 +51,19 @@ async function releaseClaims(keys: ReadonlySet<string>): Promise<void> {
 
 export type WebhookOutcome = 'done' | 'pending' | 'failed';
 
+/** Where the work's time went so far: db vs outbound http (incl. GoTrue). */
+function stageFields(): Record<string, number> {
+  const stages = stageSnapshot();
+  const db = stages.db;
+  const outbound = (stages.http?.wallMs ?? 0) + (stages.gotrue?.wallMs ?? 0);
+  return {
+    dbMs: Math.round(db?.wallMs ?? 0),
+    dbOps: db?.count ?? 0,
+    httpMs: Math.round(outbound),
+    httpOps: (stages.http?.count ?? 0) + (stages.gotrue?.count ?? 0),
+  };
+}
+
 export async function runWebhookWork(
   label: string,
   work: () => Promise<void>,
@@ -53,15 +73,20 @@ export async function runWebhookWork(
   const startedAt = Date.now();
   const claims = new Set<string>();
   let outcome: WebhookOutcome = 'pending';
+  // True only when the ack timer actually won the race: the ack went out at the
+  // budget and the work outlived the response. Work that merely ran long while
+  // blocking the loop still won the race, its duration is in the request log.
+  let ackTimedOut = false;
   const running = claimScope.run(claims, work).then(
     () => {
       outcome = 'done';
-      // The request answered at the ack budget; how much slower the work ran is
-      // the only record of WHY a webhook's p95 rose (KRTX-4015). >= : finishing
-      // at the budget means the budget did not cover it.
-      const workMs = Date.now() - startedAt;
-      if (ackWaitMs > 0 && workMs >= ackWaitMs) {
-        logger.warn('[webhook-work] work finished after the ack', { label, workMs, ackWaitMs });
+      if (ackTimedOut) {
+        logger.warn('[webhook-work] work finished after the ack', {
+          label,
+          workMs: Date.now() - startedAt,
+          ackWaitMs,
+          ...stageFields(),
+        });
       }
     },
     async (error) => {
@@ -69,6 +94,7 @@ export async function runWebhookWork(
       logger.error(`[${label}] handler failed`, {
         error: error instanceof Error ? error.message : String(error),
         workMs: Date.now() - startedAt,
+        ...stageFields(),
       });
       if (options.releaseOnFailure !== false) await releaseClaims(claims);
     },
@@ -86,7 +112,12 @@ export async function runWebhookWork(
     // Still 'pending' here means the timer won: the provider got its ack and
     // the work outlived it (request logs pin at the budget and say no more).
     if (outcome === 'pending') {
-      logger.warn('[webhook-work] ack budget elapsed — work still running', { label, ackWaitMs });
+      ackTimedOut = true;
+      logger.warn('[webhook-work] ack budget elapsed — work still running', {
+        label,
+        ackWaitMs,
+        ...stageFields(),
+      });
     }
   }
   return outcome;

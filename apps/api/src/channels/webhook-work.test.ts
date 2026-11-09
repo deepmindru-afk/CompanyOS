@@ -79,7 +79,7 @@ describe('runWebhookWork', () => {
     expect(outcome).toBe('pending');
   });
 
-  test('an ack budget that elapses warns, and the late finish logs its duration', async () => {
+  test('an ack budget that elapses warns, and the late finish logs its duration and stage split', async () => {
     let finish!: () => void;
     const outcome = await runWebhookWork(
       'slack-oauth-event',
@@ -92,12 +92,30 @@ describe('runWebhookWork', () => {
     const elapsed = warnings.find((w) => w.message.includes('ack budget elapsed'));
     expect(elapsed).toBeDefined();
     expect(elapsed?.context?.label).toBe('slack-oauth-event');
+    expect(elapsed?.context?.dbMs).toBe(0);
+    expect(elapsed?.context?.httpMs).toBe(0);
     finish();
     await Bun.sleep(30);
     const late = warnings.find((w) => w.message.includes('finished after the ack'));
     expect(late).toBeDefined();
     expect(late?.context?.label).toBe('slack-oauth-event');
     expect(late?.context?.workMs).toBeGreaterThanOrEqual(20);
+    expect(late?.context?.dbMs).toBe(0);
+  });
+
+  test('sync work that outlasts the budget but wins the race stays silent', async () => {
+    const outcome = await runWebhookWork(
+      't',
+      async () => {
+        // Blocks the loop past the budget: the timer fires late, the work
+        // settles first, and the request log already shows the true duration.
+        const end = Date.now() + 30;
+        while (Date.now() < end) {}
+      },
+      { ackWaitMs: 20 },
+    );
+    expect(outcome).toBe('done');
+    expect(warnings).toHaveLength(0);
   });
 
   test('work inside the ack budget stays silent', async () => {
