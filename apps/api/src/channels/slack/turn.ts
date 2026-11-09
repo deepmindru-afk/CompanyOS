@@ -695,7 +695,7 @@ const ANSWER_RESCUE_TTL_MS = STREAM_TTL_MS;
 // reaches the thread. It was one rescue per session per TTL, which silenced
 // every answer after the first within 15 minutes: the "No active Slack turn
 // to answer" an agent saw on its second turn (INC-2026-09-08-CONNECTOR-GATEWAY).
-async function claimAnswerRescue(sessionId: string, text: string): Promise<boolean> {
+export async function claimAnswerRescue(sessionId: string, text: string): Promise<boolean> {
   const digest = createHash('sha256').update(text).digest('hex').slice(0, 16);
   try {
     const inserted = await db

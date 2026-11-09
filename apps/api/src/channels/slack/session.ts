@@ -382,7 +382,7 @@ function queuedMessage(): string {
 }
 
 // Fail open on DB errors rather than dropping a message.
-async function claimThreadCreate(key: string): Promise<boolean> {
+export async function claimThreadCreate(key: string): Promise<boolean> {
   try {
     const inserted = await db
       .insert(chatEventDedup)
