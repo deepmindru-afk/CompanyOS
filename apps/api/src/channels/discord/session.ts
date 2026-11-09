@@ -622,12 +622,13 @@ export async function handleDiscordMessage(
             },
           },
           prompt: envelope,
-          onUnavailableModel: (model) =>
-            postMessage(
+          onUnavailableModel: async (model) => {
+            await postMessage(
               target.threadId,
               { content: `Kortix did not send your message: this channel's model ${model} is not available any more. Pick another with /model, then send your message again.` },
               message.id,
-            ),
+            );
+          },
         }),
     },
     run,

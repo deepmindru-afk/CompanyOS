@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import type { ChannelEnvelope } from '@kortix/shared';
 
 // Characterization test (KRTX-4562): pins chatSessionPlan's contract before
 // the Telegram and Discord adapters give up their own copies of the plan
@@ -28,15 +29,16 @@ mock.module('../model-access', () => ({
 const { chatSessionPlan } = await import('./model-choice');
 
 const settings = { platform: 'telegram', teamId: 'bot-1', channelId: 'chat-1' };
-const project = { projectId: 'p1', accountId: 'a1', metadata: {} };
-const prompt = {
+// The rows the adapters pass through; only the fields the plan reads.
+const project = { projectId: 'p1', accountId: 'a1', metadata: {} } as Parameters<typeof chatSessionPlan>[0]['project'];
+const prompt: ChannelEnvelope = {
   platform: 'Telegram',
   sender: '@synthetic_user',
   where: 'chat',
   text: 'status?',
-  reply: {},
+  reply: 'kortix connectors call kortix_telegram.send_message …',
   notes: [],
-} as Parameters<typeof chatSessionPlan>[0]['prompt'];
+};
 
 beforeEach(() => {
   selection = null;
@@ -68,7 +70,9 @@ describe('chatSessionPlan — the plan a new chat session starts with', () => {
 
     const plan = await chatSessionPlan({
       settings, project, titleSource: 'hello', metadata: {}, prompt,
-      onUnavailableModel: async (model) => told.push(model),
+      onUnavailableModel: async (model) => {
+        told.push(model);
+      },
     });
 
     expect(plan).toBeNull();

@@ -68,10 +68,9 @@ export async function chatSessionStart(
 
 /**
  * The plan a new chat session starts with (a `ChannelMessage` `plan`): the
- * chat's choice read with today's default fallback — a settings row the chat
- * cannot read starts on the defaults — and null, after `onUnavailableModel`
- * told the person in the platform's own words, when the choice cannot run.
- * The caller keeps only its metadata block and its prompt.
+ * chat's choice with today's default fallback, or null — after
+ * `onUnavailableModel` told the person in the platform's own words — when the
+ * choice cannot run. The caller keeps its metadata block and its prompt.
  */
 export async function chatSessionPlan(opts: {
   settings: SettingsChannel;
@@ -80,6 +79,7 @@ export async function chatSessionPlan(opts: {
   titleSource: string | null;
   metadata: Record<string, unknown>;
   prompt: ChannelEnvelope;
+  /** Tells the person, in the platform's own words. */
   onUnavailableModel: (unavailableModel: string) => Promise<void>;
 }): Promise<ChannelSessionPlan | null> {
   const start: Awaited<ReturnType<typeof chatSessionStart>> = await chatSessionStart(opts.settings, opts.project).catch((error) => {

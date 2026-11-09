@@ -53,7 +53,7 @@ import { telegramAccessPort } from './access';
 import { TELEGRAM_UPDATES, telegramCall, telegramFile } from './api';
 import { loadTelegramBotToken, loadTelegramInstall, loadTelegramWebhookSecret } from './installs';
 import { repairTelegramMenu } from './menu';
-import { type TelegramCallbackQuery, type TelegramMessage, telegramEnvelope, telegramThreadId } from './events';
+import { type TelegramCallbackQuery, type TelegramMessage, telegramEnvelope, telegramFileOf, telegramThreadId, TELEGRAM_PRESS_EVENT } from './events';
 import { type InlineButton, clip, inlineKeyboard, MAX_BUTTONS, questionBody, questionFooter, questionMessageText, telegramCommandMessage } from './render';
 import { projectsView } from '../../workspaces/rows';
 
@@ -296,8 +296,9 @@ export async function handleTelegramEvent(
             },
           },
           prompt: envelope,
-          onUnavailableModel: (model) =>
-            reply(`Kortix did not send your message: this chat's model ${model} is not available any more. Pick another with /model, then send your message again.`),
+          onUnavailableModel: async (model) => {
+            await reply(`Kortix did not send your message: this chat's model ${model} is not available any more. Pick another with /model, then send your message again.`);
+          },
         }),
     },
     run,
