@@ -46,7 +46,7 @@ import {
   routeChannelMessage,
   type TurnSettlement,
 } from '../core/conversation';
-import { chatSessionStart, chatTurnModel } from '../core/model-choice';
+import { chatSessionPlan, chatTurnModel } from '../core/model-choice';
 import { connectorReply } from '../core/prompt';
 import {
   answerQuestionInChat,
@@ -56,7 +56,7 @@ import {
   questionPicksSoFar,
 } from '../core/questions';
 import { registerSessionPort } from '../core/session-notice';
-import { claimThreadCreate } from '../core/threads';
+import { claimThreadCreate, threadCreateClaim } from '../core/threads';
 import type { SettingsChannel } from '../core/settings';
 import { classifyTurnError } from '../slack/errors';
 import { sessionWebUrl } from '../slack/util';
@@ -461,9 +461,6 @@ export function discordEnvelope(
   };
 }
 
-const createClaimOf = (projectId: string, target: Pick<ChannelTarget, 'workspaceId' | 'threadId'>) =>
-  `discord:threadcreate:${projectId}:${target.workspaceId}:${target.threadId}`;
-
 /**
  * The thread a mention starts: on the message, so its id is the message's. A retry finds it made.
  * False: Discord refused (no permission to start threads there); the sender is told.
@@ -606,32 +603,15 @@ export async function handleDiscordMessage(
       keys: {
         followUp: `discord:${conversation.guildId}:${event.id}`,
         create: `discord:create:${conversation.guildId}:${event.id}`,
-        createClaim: createClaimOf(event.projectId, target),
+        createClaim: threadCreateClaim('discord', event.projectId, target.workspaceId, target.threadId),
       },
       followUp: picks ? { ...envelope, text: `${picks}\n\n${envelope.text}` } : envelope,
       files,
-      plan: async () => {
-        const start = await chatSessionStart(settings, project).catch((error) => {
-          logger.warn('[discord] chat settings unreadable; the session starts on the defaults', { projectId: event.projectId, error: String(error) });
-          return { agentName: 'default' } as Awaited<ReturnType<typeof chatSessionStart>>;
-        });
-        if (start.unavailableModel) {
-          await postMessage(
-            target.threadId,
-            { content: `Kortix did not send your message: this channel's model ${start.unavailableModel} is not available any more. Pick another with /model, then send your message again.` },
-            message.id,
-          );
-          return null;
-        }
-        return {
+      plan: () =>
+        chatSessionPlan({
+          settings,
           project,
-          visibility: 'project',
-          body: {
-            agent_name: start.agentName,
-            ...(start.model ? { model: start.model } : {}),
-            ...(start.pools ? { provider_secret_pools: start.pools } : {}),
-            title_source: text || null,
-          },
+          titleSource: text,
           metadata: {
             discord: {
               guild_id: conversation.direct ? null : conversation.guildId,
@@ -641,10 +621,14 @@ export async function handleDiscordMessage(
               message_id: message.id,
             },
           },
-          // A new session never asked the questions: the message alone.
           prompt: envelope,
-        };
-      },
+          onUnavailableModel: (model) =>
+            postMessage(
+              target.threadId,
+              { content: `Kortix did not send your message: this channel's model ${model} is not available any more. Pick another with /model, then send your message again.` },
+              message.id,
+            ),
+        }),
     },
     run,
   );
@@ -662,7 +646,7 @@ function answerFollowUp(
     keys: {
       followUp: `discord:${conversation.guildId}:${event.id}`,
       create: `discord:create:${conversation.guildId}:${event.id}`,
-      createClaim: createClaimOf(event.projectId, { workspaceId: conversation.guildId, threadId }),
+      createClaim: threadCreateClaim('discord', event.projectId, conversation.guildId, threadId),
     },
     followUp: discordEnvelope({ ...conversation, threadId }, { user, nick }, answer, event.id),
   });
@@ -684,7 +668,7 @@ function commandContext(ctx: DiscordCommandContext) {
     project: ctx.project,
     settings: ctx.settings,
     label: { name: discordWhere(ctx.conversation), type: ctx.conversation.direct ? 'dm' : 'channel' },
-    createClaim: createClaimOf(ctx.project.projectId, ctx.target),
+    createClaim: threadCreateClaim('discord', ctx.project.projectId, ctx.target.workspaceId, ctx.target.threadId),
     // A channel another project holds moves only through /connect, which checks the presser.
     keepsOtherProjects: true,
     questions: discordQuestions,

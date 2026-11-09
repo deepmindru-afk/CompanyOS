@@ -7,8 +7,10 @@
  * (channels/model-access.ts).
  */
 import { projectSessions } from '@kortix/db';
+import type { ChannelEnvelope } from '@kortix/shared';
 import { and, eq } from 'drizzle-orm';
 import { labelForModelRef } from '../../llm-gateway/models/picker';
+import { logger } from '../../lib/logger';
 import { db } from '../../shared/db';
 import {
   type ChannelModelScope,
@@ -17,6 +19,7 @@ import {
   projectChannelModelScope,
 } from '../model-access';
 import { type ChannelSelection, type SettingsChannel, currentChannelSelection } from './settings';
+import type { ChannelSessionPlan } from './conversation';
 import { projectsView } from '../../workspaces/rows';
 
 type ChatProject = { projectId: string; accountId: string; metadata: unknown };
@@ -60,6 +63,48 @@ export async function chatSessionStart(
     ...(start.model ? { model: start.model } : {}),
     ...(start.pools ? { pools: start.pools } : {}),
     ...(start.unavailableModel ? { unavailableModel: start.unavailableModel } : {}),
+  };
+}
+
+/**
+ * The plan a new chat session starts with (a `ChannelMessage` `plan`): the
+ * chat's choice read with today's default fallback — a settings row the chat
+ * cannot read starts on the defaults — and null, after `onUnavailableModel`
+ * told the person in the platform's own words, when the choice cannot run.
+ * The caller keeps only its metadata block and its prompt.
+ */
+export async function chatSessionPlan(opts: {
+  settings: SettingsChannel;
+  project: ChannelSessionPlan['project'];
+  /** The message's own text: the new session's title source; empty becomes null. */
+  titleSource: string | null;
+  metadata: Record<string, unknown>;
+  prompt: ChannelEnvelope;
+  onUnavailableModel: (unavailableModel: string) => Promise<void>;
+}): Promise<ChannelSessionPlan | null> {
+  const start: Awaited<ReturnType<typeof chatSessionStart>> = await chatSessionStart(opts.settings, opts.project).catch((error) => {
+    logger.warn(`[${opts.settings.platform}] chat settings unreadable; the session starts on the defaults`, {
+      projectId: opts.project.projectId,
+      error: String(error),
+    });
+    return { agentName: 'default' };
+  });
+  if (start.unavailableModel) {
+    await opts.onUnavailableModel(start.unavailableModel);
+    return null;
+  }
+  return {
+    project: opts.project,
+    visibility: 'project',
+    body: {
+      agent_name: start.agentName,
+      ...(start.model ? { model: start.model } : {}),
+      ...(start.pools ? { provider_secret_pools: start.pools } : {}),
+      title_source: opts.titleSource || null,
+    },
+    metadata: opts.metadata,
+    // A new session never asked the questions: the message alone.
+    prompt: opts.prompt,
   };
 }
 

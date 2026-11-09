@@ -35,7 +35,7 @@ import { parseChannelCommand } from '../core/command-list';
 import { isCommandPressData } from '../core/command-press';
 import { type CommandReply, rememberCommandMenu, runChannelCommand, runCommandPress } from '../core/commands';
 import { type ChannelMessage, type ChannelNotice, type ChannelPort, type ChannelTarget, routeChannelMessage } from '../core/conversation';
-import { chatSessionStart, chatTurnModel } from '../core/model-choice';
+import { chatSessionPlan, chatTurnModel } from '../core/model-choice';
 import {
   answerQuestionInChat,
   clearQuestionButtons,
@@ -45,7 +45,7 @@ import {
 } from '../core/questions';
 import { registerSessionPort } from '../core/session-notice';
 import type { SettingsChannel } from '../core/settings';
-import { claimThreadCreate, releaseThreadCreate } from '../core/threads';
+import { claimThreadCreate, releaseThreadCreate, threadCreateClaim } from '../core/threads';
 import { classifyTurnError } from '../slack/errors';
 import { sessionWebUrl } from '../slack/util';
 import { runErrorAdvice, startErrorMessage, TELEGRAM_START_ERROR_COMMANDS } from '../start-error';
@@ -223,7 +223,7 @@ export async function handleTelegramEvent(
     return;
   }
   await repairTelegramMenu(token, install.botId);
-  const createClaim = `telegram:threadcreate:${event.projectId}:${install.botId}:${target.threadId}`;
+  const createClaim = threadCreateClaim('telegram', event.projectId, install.botId, target.threadId);
   const file = telegramFileOf(message);
   const command = parseChannelCommand(text, install.username);
   if (command) {
@@ -281,24 +281,11 @@ export async function handleTelegramEvent(
             read: (maxBytes) => telegramFile(token, file.ref.file_id, maxBytes),
           }]
         : [],
-      plan: async () => {
-        const start = await chatSessionStart(telegramSettings(target), project).catch((error) => {
-          logger.warn('[telegram] chat settings unreadable; the session starts on the defaults', { projectId: event.projectId, error: String(error) });
-          return { agentName: 'default' } as Awaited<ReturnType<typeof chatSessionStart>>;
-        });
-        if (start.unavailableModel) {
-          await reply(`Kortix did not send your message: this chat's model ${start.unavailableModel} is not available any more. Pick another with /model, then send your message again.`);
-          return null;
-        }
-        return {
+      plan: () =>
+        chatSessionPlan({
+          settings: telegramSettings(target),
           project,
-          visibility: 'project',
-          body: {
-            agent_name: start.agentName,
-            ...(start.model ? { model: start.model } : {}),
-            ...(start.pools ? { provider_secret_pools: start.pools } : {}),
-            title_source: text || null,
-          },
+          titleSource: text,
           metadata: {
             telegram: {
               bot_id: install.botId,
@@ -308,10 +295,10 @@ export async function handleTelegramEvent(
               message_id: message.message_id,
             },
           },
-          // A new session never asked the questions: the message alone.
           prompt: envelope,
-        };
-      },
+          onUnavailableModel: (model) =>
+            reply(`Kortix did not send your message: this chat's model ${model} is not available any more. Pick another with /model, then send your message again.`),
+        }),
     },
     run,
   );
@@ -376,7 +363,7 @@ function answerFollowUp(
       keys: {
         followUp: `telegram:${botId}:${event.id}`,
         create: `telegram:create:${botId}:${event.id}`,
-        createClaim: `telegram:threadcreate:${event.projectId}:${botId}:${threadId}`,
+        createClaim: threadCreateClaim('telegram', event.projectId, botId, threadId),
       },
       followUp: telegramEnvelope(reply),
     };
@@ -407,7 +394,7 @@ async function handleTelegramCommandPress(
       settings: telegramSettings(target),
       // The stored press keeps no chat names (telegramPressEvent): a row this press creates asks Telegram.
       label: { name: null, type: message.chat.type, lookupName: () => fetchTelegramChatName(token, message.chat.id) },
-      createClaim: `telegram:threadcreate:${event.projectId}:${botId}:${target.threadId}`,
+      createClaim: threadCreateClaim('telegram', event.projectId, botId, target.threadId),
       questions: telegramQuestions,
     },
     press.data!,

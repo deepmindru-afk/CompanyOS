@@ -131,6 +131,16 @@ export async function dropChatThread(key: ChatThreadKey, sessionId?: string): Pr
 const CREATE_CLAIM_TTL_MS = 10 * 60_000;
 
 /**
+ * The written claim key (`claimThreadCreate`) of a chat thread's first create:
+ * `<platform>:threadcreate:<project>:<workspace>:<thread>`. The lifecycle
+ * treats the string as idempotency state, so a changed key would start a
+ * second session for threads that already hold one.
+ */
+export function threadCreateClaim(platform: string, projectId: string, workspaceId: string, threadId: string): string {
+  return `${platform}:threadcreate:${projectId}:${workspaceId}:${threadId}`;
+}
+
+/**
  * Claim the first create of a thread. An expired claim (a create that never
  * finished) is taken over in the same statement. Returns the owner token for
  * `releaseThreadCreate`, or null while another create holds it. A DB error
