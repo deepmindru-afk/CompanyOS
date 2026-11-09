@@ -58,3 +58,9 @@ export function parseChannelCommand(text: string, botUsername: string | null): P
 export function commandMenu(): Array<{ command: string; description: string }> {
   return CHANNEL_COMMANDS.map((c) => ({ command: c.name, description: c.description }));
 }
+
+/** "/new, /stop, … and /help": the commands the agent never receives. */
+export function kortixCommandsSentence(): string {
+  const names = CHANNEL_COMMANDS.map((c) => `/${c.name}`);
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}

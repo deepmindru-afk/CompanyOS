@@ -34,7 +34,7 @@ import { logger } from '../../lib/logger';
 import { db } from '../../shared/db';
 import { DISCORD_CHANNEL_CONNECTOR_SLUG } from '../../connectors/channels';
 import { gateSender, refusedPressText } from '../core/channel-access';
-import { CHANNEL_COMMANDS, parseChannelCommand, type ParsedCommand } from '../core/command-list';
+import { CHANNEL_COMMANDS, kortixCommandsSentence, parseChannelCommand, type ParsedCommand } from '../core/command-list';
 import { isCommandPressData } from '../core/command-press';
 import { type CommandReply, rememberCommandMenu, runChannelCommand, runCommandPress } from '../core/commands';
 import {
@@ -429,10 +429,6 @@ function senderName(user: { username?: string; global_name?: string | null }, ni
   return shown || (user.username ? `@${user.username}` : 'unknown');
 }
 
-/** "/new, /stop, … and /help": the commands the agent never receives. */
-const COMMAND_NAMES = CHANNEL_COMMANDS.map((c) => `/${c.name}`);
-const KORTIX_COMMANDS = `${COMMAND_NAMES.slice(0, -1).join(', ')} and ${COMMAND_NAMES.at(-1)}`;
-
 /** Where a conversation is, for the prompt header and the Channels page. */
 function discordWhere(c: DiscordConversation): string {
   if (c.direct) return 'direct message';
@@ -469,8 +465,8 @@ export function discordEnvelope(
       `While you work on a long task, show typing: ${connectorReply(DISCORD_CHANNEL_CONNECTOR_SLUG, 'trigger_typing', { channel_id: threadId })}.`,
       'The bot token is resolved server-side. Do not look for it in the sandbox.',
       everyMessage
-        ? `The next message in this conversation continues this session. Kortix answers ${KORTIX_COMMANDS} itself; those commands never reach you.`
-        : `The next message that mentions you in this ${conversation.threadId !== conversation.settingsId ? 'thread' : 'channel'} continues this session; people's other messages there do not reach you. Kortix answers ${KORTIX_COMMANDS} itself; those commands never reach you.`,
+        ? `The next message in this conversation continues this session. Kortix answers ${kortixCommandsSentence()} itself; those commands never reach you.`
+        : `The next message that mentions you in this ${conversation.threadId !== conversation.settingsId ? 'thread' : 'channel'} continues this session; people's other messages there do not reach you. Kortix answers ${kortixCommandsSentence()} itself; those commands never reach you.`,
       ...(conversation.direct || messageContent
         ? []
         : [
