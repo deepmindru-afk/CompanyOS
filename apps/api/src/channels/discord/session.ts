@@ -60,7 +60,7 @@ import { claimThreadCreate } from '../core/threads';
 import type { SettingsChannel } from '../core/settings';
 import { classifyTurnError } from '../slack/errors';
 import { sessionWebUrl } from '../slack/util';
-import { DISCORD_START_ERROR_COMMANDS, startErrorMessage } from '../start-error';
+import { DISCORD_START_ERROR_COMMANDS, runErrorAdvice, startErrorMessage } from '../start-error';
 import { discordAccessPort } from './access';
 import { DiscordApiError, discordCall, discordDownload, discordPost, discordUnreachable } from './api';
 import { bindDiscordChannel, claimDiscordChannel, isProjectPress, parseProjectPress } from './connect';
@@ -290,21 +290,6 @@ const discordQuestions: QuestionPort = {
   },
 };
 
-/** Plain-text next step per `classifyTurnError` title (slack/errors.ts). Another title ('Run failed') gets the fallback. */
-const RUN_ERROR_ADVICE: Partial<Record<string, string>> = {
-  'Out of credits': 'A workspace admin can top up credits in Kortix. Then send your message again.',
-  'Usage limit reached': 'Wait, then send your message again. A workspace admin can also pick another model in Kortix.',
-  'Response too long': 'Ask the agent to continue, or narrow the request.',
-  'Conversation too long': 'Use /new to start a new conversation.',
-  'Agent unavailable': 'Use /agent to pick another agent, then /new and your message again. A workspace admin can also fix the agent in Kortix.',
-  'Model unavailable': 'Use /model to pick another model, then send your message again.',
-  'ChatGPT login needs reconnection': 'Whoever connected the ChatGPT account must reconnect it in Kortix. Then send your message again.',
-  'Provider rejected the request': 'A workspace admin can check the model provider settings in Kortix. Then send your message again.',
-  'Provider unavailable': 'Send your message again to retry.',
-  'Request blocked': 'Rephrase the request, then send it again.',
-};
-const RUN_ERROR_FALLBACK_ADVICE = 'Send your message again, or use /new to start a new conversation.';
-
 /** The conversation's settings row key (`chat_channel_bindings`): a thread's parent channel, or the DM. */
 const discordSettings = (target: ChannelTarget, settingsId: string): SettingsChannel => ({
   platform: 'discord',
@@ -353,7 +338,7 @@ export function discordNotice(target: ChannelTarget, notice: ChannelNotice): str
       // The title comes from a closed set: the provider's own message never reaches the chat.
       return [
         `Kortix could not finish this run: ${title}.`,
-        RUN_ERROR_ADVICE[title] ?? RUN_ERROR_FALLBACK_ADVICE,
+        runErrorAdvice(title, DISCORD_START_ERROR_COMMANDS),
         `Details: ${sessionWebUrl(config.FRONTEND_URL, target.projectId, notice.sessionId)}`,
       ].join('\n');
     }

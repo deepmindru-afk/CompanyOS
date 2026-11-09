@@ -34,6 +34,8 @@ export interface StartErrorCommands {
   switchProject: string;
   /** Links the user's Kortix account. */
   login: string;
+  /** The verb before a slash command in run-error advice (`runErrorAdvice`). */
+  commandVerb: string;
 }
 
 export const SLACK_START_ERROR_COMMANDS: StartErrorCommands = {
@@ -41,6 +43,7 @@ export const SLACK_START_ERROR_COMMANDS: StartErrorCommands = {
   settings: '`/kortix`',
   switchProject: '`/kortix switch`',
   login: '`/kortix login`',
+  commandVerb: 'Send',
 };
 
 export const TEAMS_START_ERROR_COMMANDS: StartErrorCommands = {
@@ -48,6 +51,7 @@ export const TEAMS_START_ERROR_COMMANDS: StartErrorCommands = {
   settings: '`/status`',
   switchProject: '`/projects`',
   login: '`/login`',
+  commandVerb: 'Send',
 };
 
 /** Plain text: Telegram replies carry no markup. `/status` shows the chat's settings; the project and the login live in Kortix. */
@@ -56,6 +60,7 @@ export const TELEGRAM_START_ERROR_COMMANDS: StartErrorCommands = {
   settings: '/status',
   switchProject: 'Channels → Telegram in the Kortix workspace',
   login: 'Channels → Telegram in the Kortix workspace',
+  commandVerb: 'Send',
 };
 
 /** Discord renders Markdown: `/status` and `/connect` are slash commands; the login lives in Kortix. */
@@ -64,7 +69,27 @@ export const DISCORD_START_ERROR_COMMANDS: StartErrorCommands = {
   settings: '`/status`',
   switchProject: '`/connect`',
   login: 'Channels → Discord in the Kortix workspace',
+  commandVerb: 'Use',
 };
+
+/** Plain-text next step per `classifyTurnError` title (slack/errors.ts). Another title ('Run failed') gets the fallback.
+ *  The verb before a slash command is the platform's own: Telegram says "Send /new", Discord "Use /new". */
+export function runErrorAdvice(title: string, commands: StartErrorCommands): string {
+  const verb = commands.commandVerb;
+  const table: Partial<Record<string, string>> = {
+    'Out of credits': 'A workspace admin can top up credits in Kortix. Then send your message again.',
+    'Usage limit reached': 'Wait, then send your message again. A workspace admin can also pick another model in Kortix.',
+    'Response too long': 'Ask the agent to continue, or narrow the request.',
+    'Conversation too long': `${verb} /new to start a new conversation.`,
+    'Agent unavailable': `${verb} /agent to pick another agent, then /new and your message again. A workspace admin can also fix the agent in Kortix.`,
+    'Model unavailable': `${verb} /model to pick another model, then send your message again.`,
+    'ChatGPT login needs reconnection': 'Whoever connected the ChatGPT account must reconnect it in Kortix. Then send your message again.',
+    'Provider rejected the request': 'A workspace admin can check the model provider settings in Kortix. Then send your message again.',
+    'Provider unavailable': 'Send your message again to retry.',
+    'Request blocked': 'Rephrase the request, then send it again.',
+  };
+  return table[title] ?? `Send your message again, or ${verb.toLowerCase()} /new to start a new conversation.`;
+}
 
 export function startErrorMessage(
   status: number | undefined,
