@@ -44,12 +44,15 @@ mock.module('../channels/slack/inbound', () => ({
 }));
 const handledInbound: unknown[] = [];
 const dispatchedEvents: unknown[] = [];
+/** > 0 simulates the dispatch work still running when the test asserts the ack. */
+let slowDispatchMs = 0;
 const slashCalls: unknown[] = [];
 const realDispatch = await import('../channels/slack/dispatch');
 mock.module('../channels/slack/dispatch', () => ({
   ...realDispatch,
   maybeHandleDmCommand: async () => false,
   dispatchSlackEvent: async (projectId: string, envelope: unknown, opts: unknown) => {
+    if (slowDispatchMs > 0) await new Promise((r) => setTimeout(r, slowDispatchMs));
     dispatchedEvents.push({ projectId, envelope, opts });
   },
   ensureProjectChannelBinding: async () => {},
@@ -91,6 +94,7 @@ beforeEach(() => {
   dispatchedEvents.length = 0;
   slashCalls.length = 0;
   provenTeams = ['T1'];
+  slowDispatchMs = 0;
 });
 
 function signed(body: string, contentType: string): RequestInit {
@@ -158,6 +162,36 @@ describe('a per-project Slack app reaches only the workspace its install proved'
     expect(res.status).toBe(403);
     await new Promise((r) => setTimeout(r, 10));
     expect(dispatchedEvents).toEqual([]);
+  });
+
+  test('an event_callback acks at EVENT_ACK_WAIT_MS, not the 2 s webhook budget', async () => {
+    projectSigningSecret = 'signing-secret';
+    // A mention whose work outlasts the event-callback ack budget (a session
+    // spawn on prod takes 300 ms - 2 s); the 2 s route budget would return at
+    // the work's wall time, the event budget returns at the budget.
+    slowDispatchMs = 900;
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event_id: 'EvSlow',
+      team_id: 'T1',
+      event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+    });
+    const started = Date.now();
+    const res = await slackWebhookApp.request(
+      '/3f1c2b7e-0000-4000-8000-000000000001',
+      signed(body, 'application/json'),
+    );
+    const elapsed = Date.now() - started;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(slowDispatchMs).toBe(900);
+    // Work still dispatches after the ack (the route reads the dispatch itself).
+    await new Promise((r) => setTimeout(r, 750));
+    expect(dispatchedEvents).toHaveLength(1);
+    // The 250 ms event budget gated the ack; with the shared 2 s budget this
+    // request answered at the 900 ms work (and ≥2 s when the work is slower).
+    expect(elapsed).toBeGreaterThanOrEqual(200);
+    expect(elapsed).toBeLessThan(500);
   });
 
   test('an install with no proven workspace refuses every signed callback', async () => {

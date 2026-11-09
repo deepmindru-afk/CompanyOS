@@ -33,6 +33,22 @@ import { stageSnapshot } from '../lib/server-timing';
 /** Slack drops a webhook that has not answered after 3 s; stay well under it. */
 export const ACK_WAIT_MS = 2_000;
 
+/**
+ * Event-callback ack budget. The event routes' 200 body is `{ok: true}` — Slack
+ * reads nothing out of it, so holding the request for work costs only latency:
+ * with `ACK_WAIT_MS` (2026-11-03..05 prod p95 rows on `POST /v1/webhooks/slack`
+ * all pinned ~2002-2157 ms on this budget while the work — db statements, git
+ * mirrors, Slack posts — ran behind it). 250 ms keeps the quick-failure 500
+ * window (Slack retries a 5xx) while capping every event-callback response at
+ * ~250 ms — always inside the 438 ms p95 acceptance (1.5 x the 292 ms baseline,
+ * `infra:log:0e6410423224`) even with the ~150 ms post-budget jitter the pinned
+ * rows also showed. The Teams webhooks ack at 0 (`ackWaitMs: 0` in
+ * `channels/teams/routes.ts`) for the same reason; the interactivity routes keep
+ * `ACK_WAIT_MS` because their 200 body is read (`response_action`,
+ * close-modal).
+ */
+export const EVENT_ACK_WAIT_MS = 250;
+
 const claimScope = new AsyncLocalStorage<Set<string>>();
 
 /** Call after a claim insert wins. A no-op outside `runWebhookWork`. */

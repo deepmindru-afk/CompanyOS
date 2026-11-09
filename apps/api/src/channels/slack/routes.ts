@@ -30,7 +30,7 @@ import {
 } from './inbound';
 import type { SlackInteractionPayload, SlashResponse } from './types';
 import { bindIntegrationPrincipal } from '../../shared/audit-scope';
-import { runWebhookWork, type WebhookOutcome } from '../webhook-work';
+import { EVENT_ACK_WAIT_MS, runWebhookWork, type WebhookOutcome } from '../webhook-work';
 import { workspaceIdParam } from '../../shared/route-params';
 
 // ── Shared slash + interactivity processing ───────────────────────────────────
@@ -188,6 +188,8 @@ export function registerSlackWebhookRoutes(): void {
       if (!envelope) return c.json({ error: 'Invalid JSON' }, 400);
       if (envelope.type === 'url_verification') return c.json({ challenge: envelope.challenge });
       if (envelope.type !== 'event_callback' || !envelope.event) return c.json({ ok: true });
+      // The 200 body is `{ok:true}` Slack never reads — ack fast
+      // (EVENT_ACK_WAIT_MS) and let the work finish detached.
       const outcome = await runWebhookWork('slack-oauth-event', async () => {
         if (await alreadyHandled(envelope.event_id)) return;
         const teamId = envelope.team_id ?? envelope.event?.team ?? '';
@@ -238,7 +240,7 @@ export function registerSlackWebhookRoutes(): void {
             );
           }
         }
-      });
+        }, { ackWaitMs: EVENT_ACK_WAIT_MS });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
 
       return c.json({ ok: true });
@@ -362,6 +364,8 @@ export function registerSlackWebhookRoutes(): void {
       bindIntegrationPrincipal('slack', { projectId });
 
       if (envelope.type !== 'event_callback' || !envelope.event) return c.json({ ok: true });
+      // The 200 body is `{ok:true}` Slack never reads — ack fast
+      // (EVENT_ACK_WAIT_MS) and let the work finish detached.
       const outcome = await runWebhookWork('slack-byo-event', async () => {
         // Scoped per project: this is a BYO app with its own event id space, and
         // another project (or the canonical app) may deliver the same event_id.
@@ -371,7 +375,7 @@ export function registerSlackWebhookRoutes(): void {
           return;
         }
         await dispatchSlackEvent(projectId, envelope, { ownThreadsOnly: true });
-      });
+        }, { ackWaitMs: EVENT_ACK_WAIT_MS });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
       return c.json({ ok: true });
     },
