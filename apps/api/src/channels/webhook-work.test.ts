@@ -13,21 +13,27 @@ mock.module('../shared/db', () => ({
 }));
 
 const warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
+const errors: Array<{ message: string; context?: Record<string, unknown> }> = [];
 mock.module('../lib/logger', () => ({
   logger: {
     warn: (message: string, context?: Record<string, unknown>) => {
       warnings.push({ message, context });
     },
-    error: () => {},
+    error: (message: string, context?: Record<string, unknown>) => {
+      errors.push({ message, context });
+    },
   },
 }));
 
 const { runWebhookWork, recordClaim } = await import('./webhook-work');
 const { inflightCount, resetDrainForTests } = await import('../shared/drain');
+const { runWithContext } = await import('../lib/request-context');
+const { beginStage } = await import('../lib/server-timing');
 
 beforeEach(() => {
   deleted.length = 0;
   warnings.length = 0;
+  errors.length = 0;
   resetDrainForTests();
 });
 
@@ -116,6 +122,57 @@ describe('runWebhookWork', () => {
     );
     expect(outcome).toBe('done');
     expect(warnings).toHaveLength(0);
+  });
+
+  test('stage fields carry real db and http time inside a request scope', async () => {
+    let finish!: () => void;
+    await runWithContext('POST', '/v1/webhooks/slack', async () => {
+      beginStage('http'); // left in-flight: counts up at every snapshot
+      const outcome = await runWebhookWork(
+        'slack-oauth-event',
+        async () => {
+          const dbEnd = beginStage('db');
+          await Bun.sleep(10);
+          dbEnd();
+          await new Promise<void>((resolve) => (finish = resolve));
+        },
+        { ackWaitMs: 20 },
+      );
+      expect(outcome).toBe('pending');
+      const elapsed = warnings.find((w) => w.message.includes('ack budget elapsed'));
+      expect(elapsed).toBeDefined();
+      expect(elapsed?.context?.dbMs).toBeGreaterThanOrEqual(5);
+      expect(elapsed?.context?.httpMs).toBeGreaterThan(0);
+      finish();
+      await Bun.sleep(30);
+      const late = warnings.find((w) => w.message.includes('finished after the ack'));
+      expect(late).toBeDefined();
+      expect(late?.context?.dbMs).toBeGreaterThanOrEqual(5);
+      expect(late?.context?.httpMs).toBeGreaterThan(0);
+    });
+  });
+
+  test('a failure after the ack carries the stage split on the error log', async () => {
+    let fail!: () => void;
+    await runWithContext('POST', '/v1/webhooks/slack', async () => {
+      const outcome = await runWebhookWork(
+        't',
+        async () => {
+          const dbEnd = beginStage('db');
+          await Bun.sleep(10);
+          dbEnd();
+          await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
+        },
+        { ackWaitMs: 20 },
+      );
+      expect(outcome).toBe('pending');
+      fail();
+      await Bun.sleep(30);
+      const err = errors.find((e) => e.message.includes('handler failed'));
+      expect(err).toBeDefined();
+      expect(err?.context?.workMs).toBeGreaterThanOrEqual(20);
+      expect(err?.context?.dbMs).toBeGreaterThanOrEqual(5);
+    });
   });
 
   test('work inside the ack budget stays silent', async () => {
