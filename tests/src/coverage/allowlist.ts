@@ -256,6 +256,18 @@ export const uncoveredAllow: AllowEntry[] = [
     })),
   ),
 { method: "POST", path: "/v1/projects/:*/transfer", reason: "project transfer between accounts (KRTX-1747): an end-user settings action, not a browser journey — covered against the real route table by apps/api/src/projects/routes/project-transfer.test.ts (gate order, error mapping), by the real-PostgreSQL movement suite apps/api/src/projects/lib/project-transfer.integration.test.ts (movement, role re-pointing, real-engine non-member deny, classification completeness), and exercised live in the PR sandbox" },
+  // Self-revocation of the presented credential (KRTX-4493): the CLI's
+  // logout calls it, and the alias `/v1/accounts/me/tokens/self` is its
+  // permanent twin in the manifest, so one entry covers both names. Covered
+  // over the real Hono app + PostgreSQL in
+  // apps/api/src/__tests__/integration-self-token-revocation.test.ts
+  // (revoke, then the revoked key stops authenticating; the credential
+  // cannot widen itself).
+  {
+    method: "DELETE",
+    path: "/v1/me/tokens/self",
+    reason: "revokes the bearer that authenticated the request (KRTX-4493, `kortix logout`); covered by integration-self-token-revocation.test.ts",
+  },
 ];
 
 export const externalRoutes: AllowEntry[] = [
