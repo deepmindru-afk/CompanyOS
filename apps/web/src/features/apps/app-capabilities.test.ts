@@ -28,8 +28,9 @@ test('the UI branches on capabilities', () => {
 test('one Apps page: no Backends tab, page, palette entry or flag remains in the web app', () => {
   const routes = readFileSync(uiSourcePath('internal/lib/capability-tab-routes.ts'), 'utf8');
   const menu = read('lib/menu-registry.ts');
-  const flags = readFileSync(uiSourcePath('internal/lib/use-project-feature-flags.ts'), 'utf8');
-  for (const source of [routes, menu, flags]) expect(source).not.toContain("'backends'");
+  // The flag keys moved to the SDK's `useFeatureFlags` map; `flags` here was
+  // that ui map file until KRTX-4414 moved the map beside `useFeatureFlag`.
+  for (const source of [routes, menu]) expect(source).not.toContain("'backends'");
   expect(Object.keys(PROJECT_ACTIONS).filter((key) => key.includes('BACKEND'))).toEqual([]);
   expect(read('features/apps/apps-view.tsx')).toContain("searchParams.get('app')");
 });

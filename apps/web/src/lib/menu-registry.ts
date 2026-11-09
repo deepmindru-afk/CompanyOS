@@ -582,10 +582,8 @@ export const menuRegistry: MenuItemDef[] = [
     group: 'navigation',
     showIn: ['commandPalette'],
     kind: 'navigate',
-    // The standalone page, not `/customize/agents`. That href still works —
-    // `legacySectionRedirect` bounces it here — but routing through the
-    // redirect costs a second navigation and paints the overlay route first.
-    href: '/workspaces/{projectId}/customize/agents',
+    // Workspace settings › Agents (2026-11-08); `/customize/agents` redirects.
+    href: '/workspaces/{projectId}/admin/agents',
     requiresProject: true,
     keywords: 'agents subagents ai',
   },
@@ -830,8 +828,8 @@ export const menuRegistry: MenuItemDef[] = [
     group: 'navigation',
     showIn: ['commandPalette'],
     kind: 'navigate',
-    // Review's own page (`reviewHref`), outside Customize since 2026-11-04.
-    href: '/workspaces/{projectId}/review',
+    // The Inbox's Review tab (`reviewHref`) since 2026-11-08.
+    href: '/workspaces/{projectId}/inbox?view=review',
     requiresProject: true,
     keywords: 'review center inbox approvals awaiting waiting needs you outputs queue',
   },

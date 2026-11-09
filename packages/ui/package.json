@@ -329,7 +329,6 @@
     "./internal/lib/use-deployment-cli-install-command": "./src/internal/lib/use-deployment-cli-install-command.ts",
     "./internal/lib/use-permission": "./src/internal/lib/use-permission.ts",
     "./internal/lib/use-project-can": "./src/internal/lib/use-project-can.ts",
-    "./internal/lib/use-project-feature-flags": "./src/internal/lib/use-project-feature-flags.ts",
     "./internal/lib/utils/clipboard": "./src/internal/lib/utils/clipboard.ts",
     "./internal/lib/utils/file-utils": "./src/internal/lib/utils/file-utils.ts",
     "./internal/lib/utils/focus-without-scroll": "./src/internal/lib/utils/focus-without-scroll.ts",
@@ -524,6 +523,7 @@
     "./workspace/home/mobile-app-promo": "./src/workspace/home/mobile-app-promo.tsx",
     "./workspace/home/sandbox-picker": "./src/workspace/home/sandbox-picker.tsx",
     "./workspace/home/welcome-body": "./src/workspace/home/welcome-body.tsx",
+    "./workspace/inbox/workspace-inbox": "./src/workspace/inbox/workspace-inbox.tsx",
     "./workspace/layout/project-files-skeleton": "./src/workspace/layout/project-files-skeleton.tsx",
     "./workspace/layout/project-home": "./src/workspace/layout/project-home.tsx",
     "./workspace/layout/sidebar-cookie": "./src/workspace/layout/sidebar-cookie.ts",
@@ -1785,10 +1785,6 @@
         "types": "./dist/internal/lib/use-project-can.d.ts",
         "import": "./dist/internal/lib/use-project-can.js"
       },
-      "./internal/lib/use-project-feature-flags": {
-        "types": "./dist/internal/lib/use-project-feature-flags.d.ts",
-        "import": "./dist/internal/lib/use-project-feature-flags.js"
-      },
       "./internal/lib/utils/clipboard": {
         "types": "./dist/internal/lib/utils/clipboard.d.ts",
         "import": "./dist/internal/lib/utils/clipboard.js"
@@ -2546,6 +2542,10 @@
       "./workspace/home/welcome-body": {
         "types": "./dist/workspace/home/welcome-body.d.ts",
         "import": "./dist/workspace/home/welcome-body.js"
+      },
+      "./workspace/inbox/workspace-inbox": {
+        "types": "./dist/workspace/inbox/workspace-inbox.d.ts",
+        "import": "./dist/workspace/inbox/workspace-inbox.js"
       },
       "./workspace/layout/project-files-skeleton": {
         "types": "./dist/workspace/layout/project-files-skeleton.d.ts",

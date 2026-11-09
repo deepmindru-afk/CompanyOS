@@ -74,7 +74,7 @@ test('a route the host maps to null hides its row; the customize pages keep thei
 
 test('review and reminders links follow the host customize route', () => {
   // Review is its own page by default; a host that routes its own customize pages serves it there.
-  expect(reviewHref('p')).toBe('/workspaces/p/review');
+  expect(reviewHref('p')).toBe('/workspaces/p/inbox?view=review');
   setUiRoutes({ customize: (p, path) => `/w/${p}/setup/${path ?? ''}` });
   expect(remindersHref('p')).toBe('/w/p/setup/triggers');
   expect(reviewHref('p')).toBe('/w/p/setup/review');

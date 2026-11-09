@@ -5,11 +5,22 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 // tree — while still asserting the exact `queryKey`, the `enabled` guard, the
 // freshness contract, and the fail-closed read.
 
-let lastConfig: Record<string, any> | null = null;
+// The fields the hooks' useQuery config carries that these pins read, kept as
+// a test-local type so the mock stays type-checked.
+interface CapturedQueryConfig {
+  queryKey: unknown;
+  enabled?: boolean;
+  refetchOnWindowFocus?: boolean;
+  queryFn: () => Promise<unknown>;
+}
+
+let lastConfig: CapturedQueryConfig | null = null;
+let configs: CapturedQueryConfig[] = [];
 let nextResult: Record<string, unknown> = { data: undefined, isLoading: false };
 
 mock.module('@tanstack/react-query', () => ({
-  useQuery: (config: Record<string, any>) => {
+  useQuery: (config: CapturedQueryConfig) => {
+    configs.push(config);
     lastConfig = config;
     return nextResult;
   },
@@ -17,7 +28,11 @@ mock.module('@tanstack/react-query', () => ({
 
 let rowCalls: string[] = [];
 let detailCalls: string[] = [];
+// The real barrel underneath: `FEATURE_FLAG_KEYS` is a VALUE import from the
+// same barrel now, and `export *` hides the mock's missing names otherwise.
+import * as projectsClient from '../core/rest/projects-client';
 mock.module('../core/rest/projects-client', () => ({
+  ...projectsClient,
   getProject: async (projectId: string) => {
     rowCalls.push(projectId);
     return { project_id: projectId };
@@ -28,11 +43,12 @@ mock.module('../core/rest/projects-client', () => ({
   },
 }));
 
-const { useFeatureFlag } = await import('./use-feature-flag');
+const { useFeatureFlag, resolveFeatureFlag, useFeatureFlags } = await import('./use-feature-flag');
 const { qk } = await import('./query-keys');
 
 beforeEach(() => {
   lastConfig = null;
+  configs = [];
   rowCalls = [];
   detailCalls = [];
   nextResult = { data: undefined, isLoading: false };
@@ -242,5 +258,128 @@ describe('useFeatureFlag', () => {
     expect(useFeatureFlag('p', 'config_releases').enabled).toBe(true);
 
     expect(useFeatureFlag(null, 'config_releases').enabled).toBe(true);
+  });
+});
+
+/**
+ * The pure half of the same gate: the row-holding caller (the `@kortix/ui`
+ * project flag map reads the cache entry itself, one hook call for all serving
+ * keys) resolves one flag from the row it already has, with the exact
+ * `useFeatureFlag` semantics.
+ */
+describe('resolveFeatureFlag', () => {
+  test('matches useFeatureFlag on served keys: only exactly true', () => {
+    expect(resolveFeatureFlag({ reminders: true }, 'reminders')).toBe(true);
+    expect(resolveFeatureFlag({ reminders: 'true' as unknown }, 'reminders')).toBe(false);
+    expect(resolveFeatureFlag({ reminders: false }, 'reminders')).toBe(false);
+    expect(resolveFeatureFlag({}, 'reminders')).toBe(false);
+    expect(resolveFeatureFlag(undefined, 'reminders')).toBe(false);
+  });
+
+  test('graduated keys are on for every project, even against a contrary row', () => {
+    expect(resolveFeatureFlag({ review_center: false }, 'review_center')).toBe(true);
+    expect(resolveFeatureFlag({ agent_tunnel: false }, 'agent_tunnel')).toBe(true);
+    expect(resolveFeatureFlag(undefined, 'review_center')).toBe(true);
+  });
+});
+
+/**
+ * The multi-flag read for the surfaces that cannot name a flag at author time
+ * (the command palette resolves the menu registry's `requiresFlag` against it):
+ * EVERY served flag of one project, out of the ONE row, resolved through the
+ * same fail-closed resolver as `useFeatureFlag`.
+ */
+describe('useFeatureFlags', () => {
+  /** The keys the map carries: FEATURE_FLAG_KEYS plus the graduated keys the API still resolves per project. */
+  const SERVED_MAP_KEYS = [
+    'marketplace',
+    'reminders',
+    'secrets_egress',
+    'pooled_provider_secrets',
+    'us_region',
+    'event_triggers',
+    'chat',
+    'shared_drives',
+    'goals',
+    'workspace_volume',
+    'email_channel',
+    'session_groups',
+    'chrome',
+    'agent_teams',
+    'voice_call',
+    'chat_input',
+    'chat_front',
+    'spaces_proactive',
+    'volumes',
+    'drives',
+    'artifacts',
+    'session_log',
+  ] as const;
+
+  test('reads the ONE bare project row, never the detail', () => {
+    useFeatureFlags('proj-1');
+
+    expect(configs.length).toBe(1);
+    expect(lastConfig?.queryKey).toEqual(qk.project.summary('proj-1'));
+    expect(lastConfig?.enabled).toBe(true);
+    expect(lastConfig?.refetchOnWindowFocus).toBe(false);
+  });
+
+  test('reads a disabled row with no project id', () => {
+    useFeatureFlags(null);
+
+    expect(configs.length).toBe(1);
+    expect(lastConfig?.queryKey).toEqual(qk.project.summary(''));
+    expect(lastConfig?.enabled).toBe(false);
+  });
+
+  test('serves exactly the served keys — a new flag cannot be silently un-gated', () => {
+    withDetail({});
+    const { flags } = useFeatureFlags('p');
+
+    expect(Object.keys(flags).sort()).toEqual([...SERVED_MAP_KEYS].sort());
+  });
+
+  test('resolves each served key fail-closed from the row', () => {
+    // Only `=== true` may resolve, identical to `useFeatureFlag`.
+    withDetail({
+      marketplace: true,
+      event_triggers: 'true' as unknown as boolean,
+      artifacts: true,
+      session_log: true,
+      volumes: false,
+    });
+    const { flags } = useFeatureFlags('p');
+
+    expect(flags.marketplace).toBe(true);
+    expect(flags.event_triggers).toBe(false);
+    expect(flags.artifacts).toBe(true);
+    expect(flags.session_log).toBe(true);
+    expect(flags.volumes).toBe(false);
+    for (const key of SERVED_MAP_KEYS) {
+      if (['marketplace', 'event_triggers', 'artifacts', 'session_log', 'volumes'].includes(key)) continue;
+      expect(flags[key]).toBe(false);
+    }
+  });
+
+  test('every member is false until the row answers', () => {
+    withDetail(undefined);
+    const { flags } = useFeatureFlags('p');
+
+    for (const key of SERVED_MAP_KEYS) {
+      expect(flags[key]).toBe(false);
+    }
+  });
+
+  test('passes the loading state through so callers can gate on it', () => {
+    nextResult = { data: undefined, isLoading: true };
+    const loading = useFeatureFlags('p');
+    expect(loading.isLoading).toBe(true);
+    expect(loading.flags.marketplace).toBe(false);
+
+    nextResult = { data: { experimental: { marketplace: true } }, isLoading: false };
+    const ready = useFeatureFlags('p');
+    expect(ready.isLoading).toBe(false);
+    expect(ready.flags.marketplace).toBe(true);
   });
 });

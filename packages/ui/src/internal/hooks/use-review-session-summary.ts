@@ -1,7 +1,7 @@
 'use client';
 
 import type { SessionsNeedingInputResponse } from '@kortix/sdk';
-import { useReviewSummary, useSessionsNeedingInput } from '@kortix/sdk/react';
+import { useReviewSummary, useSessionAsks, useSessionsNeedingInput } from '@kortix/sdk/react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 /**
@@ -134,4 +134,16 @@ export function useSessionsAwaitingAnswer(projectId: string): ReadonlySet<string
       ),
     [data],
   );
+}
+
+/**
+ * What waits on the person in this workspace's Review: the review summary's
+ * "needs you", plus the agents' questions and permission asks
+ * (`useSessionAsks`). Connector approvals are already in the summary. The
+ * Inbox's Review tab and the workspace menu's Inbox row show this number.
+ */
+export function useReviewNeedsYouCount(projectId: string): number {
+  const reviewNeedsYou = useReviewSessionSummary(projectId, { enabled: !!projectId }).totalNeedsYou;
+  const asks = useSessionAsks(projectId, { enabled: !!projectId }).data?.asks;
+  return reviewNeedsYou + (asks?.filter((ask) => ask.kind !== 'approval').length ?? 0);
 }

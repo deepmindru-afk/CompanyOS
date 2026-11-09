@@ -110,7 +110,6 @@ import {
   translateMenuItem,
 } from '@/lib/menu-registry';
 import { track } from '@/lib/track';
-import { useProjectFeatureFlags } from '@kortix/ui/internal/lib/use-project-feature-flags';
 import { cn, uiRoutes } from '@kortix/ui';
 import { DEFAULT_WALLPAPER_ID } from '@kortix/ui/theme';
 import { hubTarget, openAccountPanel } from '@kortix/ui/internal/stores/account-panel-store';
@@ -156,6 +155,7 @@ import {
   useRuntimeConnectionStore,
   useRuntimeProviders,
   useVisibleAgents,
+  useFeatureFlags,
 } from '@kortix/sdk/react';
 import { capitalizeWords, formatRelativeTime } from '@kortix/shared';
 import {
@@ -981,15 +981,15 @@ export function CommandPalette() {
     (session) => session.session_id === currentSessionId,
   );
 
-  // The registry's `requiresFlag` gate. One primitive (`useFeatureFlag`, via
-  // `useProjectFeatureFlags`) decides for every surface, so a palette entry can
-  // never survive a flag its rail item does not. Fail-closed: unresolved detail
-  // ⇒ every flag reads false.
+  // The registry's `requiresFlag` gate. One primitive (`useFeatureFlags`, the
+  // multi-flag half of `useFeatureFlag`) decides for every surface, so a
+  // palette entry can never survive a flag its rail item does not. Fail-closed:
+  // unresolved detail ⇒ every flag reads false.
   // `projectFlags`, not `featureFlags` — the SDK's `featureFlags` is the
   // DEPLOYMENT flag set (build-time capabilities like `enableProjects`), a
   // different concept from the
   // per-project feature flags this gates on.
-  const { flags: projectFlags } = useProjectFeatureFlags(open ? projectId : null);
+  const { flags: projectFlags } = useFeatureFlags(open ? projectId : null);
 
   // Memory pages (`chat`): the server's search, at 2 characters
   // or more. Hits of an older query stay in the hook while the next loads, so

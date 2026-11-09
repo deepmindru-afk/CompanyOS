@@ -55,6 +55,6 @@ describe('bookmarked Loops address', () => {
   test('other denied tabs keep the shared access fallback', () => {
     pathname = '/workspaces/example/admin/secrets';
     render();
-    expect(replace).toHaveBeenCalledWith('/workspaces/example/customize/agents');
+    expect(replace).toHaveBeenCalledWith('/workspaces/example/admin/agents');
   });
 });

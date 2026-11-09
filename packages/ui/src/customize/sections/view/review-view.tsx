@@ -1,11 +1,8 @@
 'use client';
 
 import { ProjectFilesProvider } from '../../../files/project';
-import { useTranslations } from '../../../i18n';
-import { CustomizeHeader } from '../../agents/agent-page-chrome';
 import { ReviewCenterConnected } from './review-center-connected';
 import { useProjectName } from '@kortix/sdk/react';
-import { ProjectPageHeader } from '../../../internal/layout/project-page-header';
 
 /**
  * The Review Center inbox — the per-project human-in-the-loop inbox wired
@@ -25,38 +22,6 @@ export function ReviewView({ projectId }: { projectId: string }) {
       <ProjectFilesProvider value={{ projectId, ref: '', defaultBranch: '' }}>
         <ReviewCenterConnected projectName={projectName} />
       </ProjectFilesProvider>
-    </div>
-  );
-}
-
-/**
- * /customize/review: the Review Center under the one Customize header
- * (`CustomizeHeader`), so its title sits where the Agents index, an agent and
- * My Kortix put theirs.
- */
-export function ReviewPage({ projectId }: { projectId: string }) {
-  const t = useTranslations('agentEditor.tabs');
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <CustomizeHeader title={t('review')} rule />
-      <ReviewView projectId={projectId} />
-    </div>
-  );
-}
-
-/**
- * /workspaces/[id]/review: Review as its own page, beside the app sidebar and
- * outside Customize. The deck of what waits on the person leads Needs you.
- */
-export function ReviewStandalonePage({ projectId }: { projectId: string }) {
-  const t = useTranslations('agentEditor.tabs');
-  return (
-    // `h-svh`: nothing above this box has a definite height (as the Apps page).
-    <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-      <ProjectPageHeader title={t('review')} />
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-        <ReviewView projectId={projectId} />
-      </div>
     </div>
   );
 }

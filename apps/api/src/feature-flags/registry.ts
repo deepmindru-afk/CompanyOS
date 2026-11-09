@@ -28,9 +28,9 @@
  *      typechecked; a missing array entry compiles fine.
  *   4. Another hand-written copy in that package's projects.test.ts
  *   5. An entry below, DECLARING its enforcement mode
- *   6. One `useFeatureFlag` call + one map entry in
- *      packages/ui/src/internal/lib/use-project-feature-flags.ts (and move the trailing
- *      `isLoading:` to the newly-last hook)
+ *   6. One map entry: the served-key list is one line per new key in
+ *      packages/sdk/src/react/use-feature-flag.ts (`useFeatureFlags`); every
+ *      other copy — gate reads, `requiresFlag`, the palette map — derives from it.
  *
  * Then gate its routes with `requireFeatureFlag` (enforcement: 'routes'), or
  * its runtime behavior on `resolveFeatureFlag` (enforcement: 'behavioral').

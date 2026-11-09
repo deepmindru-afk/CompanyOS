@@ -91,6 +91,11 @@ export interface NotificationInboxViewProps {
    * Then the title is the column's heading. Absent: the project page header.
    */
   header?: ReactNode;
+  /**
+   * Only the scrolling list, without the page frame and title: the workspace
+   * Inbox draws its own header and the Review | Notifications tabs above it.
+   */
+  bare?: boolean;
   onOpenRow: (row: InboxNotification) => void;
   onMarkAllRead: () => void;
   onRetry: () => void;
@@ -111,6 +116,7 @@ export function NotificationInboxView({
   prompt,
   settings,
   header,
+  bare = false,
   onOpenRow,
   onMarkAllRead,
   onRetry,
@@ -130,12 +136,11 @@ export function NotificationInboxView({
     </>
   );
 
-  return (
-    // `h-svh`: nothing above this box has a definite height (as the Review page).
-    <div className="flex h-svh min-h-0 flex-col overflow-hidden">
-      {header ?? <ProjectPageHeader title={t('inbox.title')} />}
+  const list = (
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 pb-20 md:px-8">
+        {/* Bare (the workspace Inbox's Notifications tab): the Review tab's
+            gutter, so switching tabs does not move the column. */}
+        <div className={cn('mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 pb-20', !bare && 'md:px-8')}>
           <div className="flex flex-col gap-1.5">
             {header ? <h1 className="text-foreground text-xl font-medium text-balance">{t('inbox.title')}</h1> : null}
             <p className="text-muted-foreground text-sm text-pretty">{t('inbox.description')}</p>
@@ -224,6 +229,14 @@ export function NotificationInboxView({
           </div>
         </div>
       </div>
+  );
+  if (bare) return list;
+
+  return (
+    // `h-svh`: nothing above this box has a definite height (as the Review page).
+    <div className="flex h-svh min-h-0 flex-col overflow-hidden">
+      {header ?? <ProjectPageHeader title={t('inbox.title')} />}
+      {list}
     </div>
   );
 }
@@ -284,7 +297,15 @@ function InboxRow({ row, onOpen }: { row: InboxNotification; onOpen: () => void 
  * without it, "Notification settings" opens the project's Settings overlay.
  * `header` sits above the page (the account pages' top bar).
  */
-export function NotificationInbox({ settingsHref, header }: { settingsHref?: string; header?: ReactNode }) {
+export function NotificationInbox({
+  settingsHref,
+  header,
+  bare,
+}: {
+  settingsHref?: string;
+  header?: ReactNode;
+  bare?: boolean;
+}) {
   const t = useTranslations('notifications');
   const viewerId = useUiViewerId();
   const inbox = useNotificationInbox({ userId: viewerId });
@@ -315,6 +336,7 @@ export function NotificationInbox({ settingsHref, header }: { settingsHref?: str
           : { onOpen: () => useSettingsPanelStore.getState().openSettings('sessions') }
       }
       header={header}
+      bare={bare}
       onOpenRow={(row) => {
         if (!row.read) inbox.markRead([row.id]).catch(() => {});
       }}

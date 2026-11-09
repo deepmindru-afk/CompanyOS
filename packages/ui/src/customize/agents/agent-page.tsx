@@ -4,7 +4,7 @@ import { MY_KORTIX_AGENT_NAME } from '@kortix/shared';
 import { adminPath } from '../../lib/routes';
 
 /**
- * /workspaces/[id]/customize/agents/[name]: one agent, as a page with a rail.
+ * /workspaces/[id]/admin/agents/[name]: one agent, as a page with a rail, in the Workspace settings pane.
  *
  * Customize is agent-first. My Kortix is the one agent a person talks to; every
  * other agent is a work product with only the access its work needs. So the
@@ -123,7 +123,6 @@ import {
 } from './agent-page-chrome';
 import { AgentModelView } from './agent-model-view';
 import { AgentApprovalRules } from './agent-approval-rules';
-import { AgentPinButton } from './agent-pin-button';
 import { AgentShareControl } from './agent-share-control';
 import {
   ACCESS_VIEWS,
@@ -608,7 +607,6 @@ function AgentActions({
 
   return (
     <>
-      <AgentPinButton projectId={projectId} agent={agent.name} />
       <AgentShareControl projectId={projectId} agentName={agent.name} open={share.open} onOpenChange={share.setOpen} />
       {/* A call starts its own session on this agent, so it is offered where Start session is. */}
       {startBlocked ? null : <AgentCallButton projectId={projectId} agentName={agent.name} />}

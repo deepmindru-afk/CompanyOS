@@ -62,7 +62,6 @@ import {
   newConfigPrompt,
   useConfigureThread,
 } from '../use-configure-thread';
-import { useProjectFeatureFlags } from '../../internal/lib/use-project-feature-flags';
 import { hasOpenFloatingLayer } from '../../lib/z-stack';
 import {
   type ProjectTrigger,
@@ -78,6 +77,7 @@ import {
   useProjectApps,
   useUnifiedTriggers,
   useProjectTriggerEventApps,
+  useFeatureFlags,
   useTriggerRuns,
 } from '@kortix/sdk/react';
 import {
@@ -390,7 +390,7 @@ export function ScheduleView({
   const sheet = readTriggerSheet(searchParams);
   // App events are a beta feature behind the project flag `event_triggers`. Fail
   // closed: until the flag resolves on, nothing that lists, browses or requests events renders.
-  const featureFlags = useProjectFeatureFlags(projectId);
+  const featureFlags = useFeatureFlags(projectId);
   const eventsOn = featureFlags.flags.event_triggers === true;
   // The App events tab shows once the project has an App that sends events, or an App event trigger.
   const hasKortixApps = eventSendingApps(useProjectApps(projectId).data).length > 0;

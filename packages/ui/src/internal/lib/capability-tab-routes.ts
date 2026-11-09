@@ -68,7 +68,7 @@ export interface CapabilityTab {
  * Every tab lives under `/workspaces/<id>/customize/<segment>` (Marko,
  * 2026-09-03); `CAPABILITY_SEGMENT` maps a key to its segment. The Agents key
  * stays singular for stability, its segment is `agents`, and one agent lives
- * one level deeper, at `agentHref` (`/workspaces/<id>/customize/agents/<name>`).
+ * one level deeper, at `agentHref` (`/workspaces/<id>/admin/agents/<name>`).
  *
  * There is no Settings tab. `/workspaces/<id>/config` — the bar's trailing
  * "Settings" tab, a sub-nav over General / Sandbox templates / Review /
@@ -112,46 +112,6 @@ export const CAPABILITY_TABS: readonly CapabilityTab[] = [
 export const PRIMARY_TABS: readonly CapabilityTab['key'][] = ['agent'];
 
 /**
- * The capability libraries that moved to the account-level `/admin` dashboard
- * (Marko, 2026-10-24: authorization is per-agent, so Customize is agent-
- * centric — you add a connector, skill, trigger, reminder, model or secret TO
- * an agent, never standalone). Customize no longer lists these as tabs or
- * sidebar rows. It keeps Agents (the primary surface), Repo, Review and
- * Settings; what an agent draws on is configured per agent, on the agent's own
- * page.
- *
- * Their standalone pages still RESOLVE by URL — `capabilityAccess()` keeps the
- * keys, so `CapabilityAccessGate` renders them and the `/customize` redirect
- * still works. Only the two nav surfaces (`CapabilityTabs`,
- * `ProjectCapabilityNav`) drop them, through `customizeNavTabs`.
- */
-export const ADMIN_MANAGED_TABS: readonly CapabilityTab['key'][] = [
-  'skills',
-  'connectors',
-  'triggers',
-  'reminders',
-  'models',
-  'secrets',
-];
-
-/** Tabs that moved INTO Settings (Marko, 2026-10-24): Repo lives in the
- *  Settings rail (Repositories). Review is NOT here — it is its own standalone
- *  row in the Customize sidebar (Marko, 2026-10-24). */
-export const SETTINGS_MANAGED_TABS: readonly CapabilityTab['key'][] = ['files'];
-
-/** The capability tabs Customize still lists, in bar order: the caller's
- *  allowed tabs minus the libraries that moved to `/admin` and the ones that
- *  moved into Settings. Customize is agent-centric, so the bar leads with
- *  Agents; the rest is configured per agent or under `/admin` / Settings. */
-export function customizeNavTabs(
-  tabs: readonly CapabilityTab['key'][],
-): CapabilityTab['key'][] {
-  return tabs.filter(
-    (key) => !ADMIN_MANAGED_TABS.includes(key) && !SETTINGS_MANAGED_TABS.includes(key),
-  );
-}
-
-/**
  * A tab's URL segment. Keys are stable identifiers used across the app
  * (`TAB_PREFERENCE`, the palette, tests); segments are what a person reads in
  * the address bar. The two differ where the key predates the URL: `agent`
@@ -185,6 +145,7 @@ export function customizeHref(projectId: string): string {
  * one place, Project admin (Marko, 2026-10-27: "no duplications").
  */
 export const ADMIN_SECTION: Partial<Record<CapabilityTab['key'], string>> = {
+  agent: 'agents',
   skills: 'skills',
   connectors: 'connectors',
   triggers: 'triggers',
@@ -269,7 +230,7 @@ export function channelsHref(projectId: string): string {
 /**
  * The tab a pathname is on, matched against the shape `capabilityTabHref`
  * builds — `/workspaces/<id>/customize/<segment>` exactly — plus the deeper
- * shapes this group owns: `agentHref`'s `/workspaces/<id>/customize/agents/<name>`,
+ * shapes this group owns: `agentHref`'s `/workspaces/<id>/admin/agents/<name>`,
  * which lights the Agents tab (an agent's page is the Agents tab, opened on
  * one agent), and the app and connector pages under
  * `/workspaces/<id>/admin/connectors`, which light Connectors.
@@ -297,7 +258,10 @@ export function activeCapabilityTab(pathname: string): CapabilityTab['key'] | nu
   if (segments[2] === 'admin' && segments.length >= 4) {
     const key = (Object.keys(ADMIN_SECTION) as CapabilityTab['key'][]).find((k) => ADMIN_SECTION[k] === segments[3]);
     if (!key) return null;
-    return segments.length === 4 || (key === 'connectors' && segments.length <= 6) ? key : null;
+    // One agent (`/admin/agents/<name>`) and one connector app or connector sit below their section.
+    return segments.length === 4 || (key === 'agent' && segments.length === 5) || (key === 'connectors' && segments.length <= 6)
+      ? key
+      : null;
   }
   if (segments[2] !== 'customize') return null;
   if (segments.length === 5 && segments[3] === CAPABILITY_SEGMENT.agent) return 'agent';

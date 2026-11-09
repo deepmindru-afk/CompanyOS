@@ -6,6 +6,12 @@
  * Minimal. An icon, a one-line headline, an optional body, and up to two
  * actions (primary + secondary). A calm failure moment — not an alarm bell.
  *
+ * Drawn exactly as `EmptyState` (the `EmptyArt` card stack, the same title
+ * and spacing) with the glyph in `kortix-red`, so a page reads the same
+ * whether its list failed or is empty (D14). It had its own red tile and a
+ * larger title: Skills (error) beside Drives (empty) looked like two
+ * products (2026-11-08).
+ *
  *   <ErrorState
  *     title="Failed to load"
  *     description={error.message}
@@ -13,6 +19,7 @@
  *   />
  */
 
+import { EmptyArt } from './empty-art';
 import {
   Empty,
   EmptyContent,
@@ -52,20 +59,13 @@ export function ErrorState({
   const maxW = size === 'sm' ? 'max-w-[240px]' : 'max-w-[320px]';
 
   return (
-    <Empty className={cn('border-none', className)}>
+    <Empty className={cn('', className)}>
       <EmptyHeader className={maxW}>
-        <EmptyMedia className="mb-4">
-          <div
-            className={cn(
-              'inline-flex size-10 shrink-0 items-center justify-center rounded-sm border',
-              'bg-kortix-red/10 text-kortix-red',
-            )}
-          >
-            <IconComponent className="size-6 shrink-0" weight="fill" />
-          </div>
+        <EmptyMedia className="mb-5">
+          <EmptyArt icon={IconComponent} glyphClassName="text-kortix-red" />
         </EmptyMedia>
-        <EmptyTitle className="text-base font-semibold">{title}</EmptyTitle>
-        {description && <EmptyDescription className="mt-1.5">{description}</EmptyDescription>}
+        <EmptyTitle className="text-foreground text-sm font-semibold tracking-tight">{title}</EmptyTitle>
+        {description && <EmptyDescription className="text-muted-foreground mt-1.5">{description}</EmptyDescription>}
       </EmptyHeader>
       {(action || secondaryAction) && (
         <EmptyContent className="flex-row justify-center gap-2">

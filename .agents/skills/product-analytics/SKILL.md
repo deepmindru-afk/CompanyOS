@@ -147,8 +147,13 @@ Examples:
 
 A viewer who types `kortix.com` by hand arrives as `$direct`. The PostHog
 survey "Acquisition: how did you hear about us" catches them: one question,
-shown once, 15 s after an app page (`/projects…`) loads, to people whose
-`signed_up_at` is within 7 days. The answer is the event property
+shown once, 15 s after an app page (`/projects…`, now `/workspaces`) loads, to
+people whose `signed_up_at` is within 7 days — and only once a workspace
+exists: automatic survey display is off (`posthog-client.ts`) because the
+survey pinned the create-first-workspace landing of an empty account behind
+itself (dogfood signature `dogfood:auth-signup-onboarding:survey-modal-blocks-first-landing`).
+The chooser displays it through `apps/web/src/lib/analytics/survey-gate.ts`.
+The answer is the event property
 `$survey_response_709452a5-5925-4704-a85a-0618d2f78ed3` on `survey sent`.
 
 ## Where to look

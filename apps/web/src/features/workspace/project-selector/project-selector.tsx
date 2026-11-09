@@ -23,6 +23,7 @@ import { useLocale, useTranslations } from '@/i18n/use-translations';
 import { performSignOut } from '@/lib/auth/perform-sign-out';
 import { useSignedOutRedirect } from '@/lib/auth/use-signed-out-redirect';
 import { isAccountCreationRestricted, isBillingEnabled } from '@/lib/config';
+import { showWorkspaceSurveys } from '@/lib/analytics/survey-gate';
 import { isModifiedClick } from '@kortix/ui/internal/lib/navigation/modified-click';
 import { writeLastProjectId } from '@kortix/ui/internal/lib/onboarding/last-project-cookie';
 import { cn } from '@kortix/ui';
@@ -485,6 +486,17 @@ export function ProjectSelector({ connectComputer }: { connectComputer?: boolean
   const setSelectedAccountId = useCurrentAccountStore((state) => state.setSelectedAccountId);
   const data = useProjectSelectorData();
   const { data: adminRole } = useAdminRole();
+  const workspaceCount = data.workspaces.length;
+
+  /**
+   * A survey may pop only after the person's first workspace exists
+   * (`survey-gate.ts`): PostHog's automatic display pinned this page behind
+   * the acquisition modal for a zero-workspace account.
+   */
+  useEffect(() => {
+    showWorkspaceSurveys(workspaceCount);
+  }, [workspaceCount]);
+
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   // Never cleared: `performSignOut` replaces the document.
   const [signingOut, setSigningOut] = useState(false);

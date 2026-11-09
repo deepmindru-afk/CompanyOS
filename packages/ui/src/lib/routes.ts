@@ -84,7 +84,8 @@ const DEFAULT_ROUTES = {
   channel: (p: string, slug: string) => `/workspaces/${p}/c/${slug}`,
   dm: (p: string, agentName: string) => `/workspaces/${p}/dm/${encodeURIComponent(agentName)}`,
   memory: (p: string) => `/workspaces/${p}/memory`,
-  review: (p: string) => `/workspaces/${p}/review`,
+  // Review is a tab of the Inbox (2026-11-08); `/workspaces/<id>/review` redirects here.
+  review: (p: string) => `/workspaces/${p}/inbox?view=review`,
   inbox: (p: string) => `/workspaces/${p}/inbox`,
 };
 

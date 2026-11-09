@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * /workspaces/[id]/customize/agents: the Agents index, where the sidebar's
+ * /workspaces/[id]/admin/agents (Workspace settings › Agents): the Agents index, where the sidebar's
  * Customize row lands.
  *
  * Customize is agent-first. My Kortix is not listed: the project home starts
@@ -68,7 +68,6 @@ import { AgentCoverCard } from './agent-cover-card';
 import { agentInMode, filterAgents } from './agent-filter';
 import { CapabilityPageShell } from '../shared/capability-page-shell';
 import { CreateAgentModal } from './create-agent-modal';
-import { AgentPinButton } from './agent-pin-button';
 
 type Agent = ProjectConfigSummary['agents'][number];
 
@@ -178,7 +177,6 @@ export function AgentsPage({ projectId }: { projectId: string }) {
       description={agent.description}
       badges={<AgentCardBadges agent={agent} />}
       coverLabel={cover}
-      action={<AgentPinButton projectId={projectId} agent={agent.name} onCard />}
       meta={
         <AgentCardFacts
           agent={agent}

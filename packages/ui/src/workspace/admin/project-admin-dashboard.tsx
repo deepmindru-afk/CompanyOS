@@ -166,6 +166,7 @@ function lazyPage<M>(load: () => Promise<M>, pick: (mod: M) => SectionPage) {
 /* The package's own pages, one lazy chunk each, mounted exactly as their
    Customize routes mount them. */
 const RESOURCE_PAGES: Partial<Record<ProjectAdminResourceKey, SectionPage>> = {
+  agents: lazyPage(() => import('../../customize/agents/agents-page'), (m) => m.AgentsPage),
   connectors: lazyPage(() => import('../../customize/connectors/connectors-page'), (m) => m.ConnectorsPage),
   skills: lazyPage(() => import('../../customize/skills/skills-page'), (m) => m.SkillsPage),
   drives: lazyPage(() => import('../../customize/agents/agent-drives-section'), (m) => m.AgentDrivesSection),
@@ -361,7 +362,7 @@ export function ProjectAdminDashboard({
       }
       if (isProjectAdminResource(key)) {
         const resource = PROJECT_ADMIN_RESOURCES.find((r) => r.key === key);
-        if (!resource || !projectRowsOpen) return null;
+        if (!resource || (!projectRowsOpen && !resource.memberOpen)) return null;
         if (resource.host && !hostSections[resource.key as 'apps']) return null;
         if (resource.capability && !allowed.has(resource.capability)) return null;
         if (resource.flag === 'drives' && !drivesOn) return null;

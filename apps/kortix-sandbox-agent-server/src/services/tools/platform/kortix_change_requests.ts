@@ -37,7 +37,8 @@ interface ShowAnswer {
 
 /** The Review tab with this request open (`?id=cr:<cr_id>`, the Review Center's item id). */
 function reviewHref(context: PlatformToolContext, cr?: ChangeRequestRow): string {
-  return projectHref(context.env, cr?.cr_id ? `/review?id=${encodeURIComponent(`cr:${cr.cr_id}`)}` : '/review')
+  // The Inbox's Review tab (2026-11-08); `/review` still redirects there.
+  return projectHref(context.env, cr?.cr_id ? `/inbox?view=review&id=${encodeURIComponent(`cr:${cr.cr_id}`)}` : '/inbox?view=review')
 }
 
 /** `refs/heads/main` → `main`. */
