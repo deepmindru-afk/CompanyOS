@@ -577,53 +577,180 @@ interface SyncState {
 
 // ============================================================================
 // Store Implementation
-// Track optimistic message IDs so we can remove them when the server sends
-// the real user message (which has a different, server-generated ID).
-// Keyed by session, like every other field in this store. It used to be one
-// process-wide `Set<string>` shared by every session in the tab, and
-// `clearSession` never released its entries — so ids accumulated for the
-// lifetime of the tab, and a leaked id made `hydrate` skip parts for any real
-// message that happened to reuse it (`if (isOptimistic(...)) continue`).
-const optimisticIds = new Map<string, Set<string>>();
-// Optimistic ids whose prompt has actually been POSTed. An optimistic message
-// starts `pending` (absent here) and becomes `dispatched` when the send goes
-// out. `hydrate` never lets a `pending` message be superseded by an ordinal
-// match: the server has not been told it exists, so nothing the server returns
-// can be a copy of it.
-const dispatchedOptimisticIds = new Map<string, Set<string>>();
-// Optimistic ids whose prompt-inbox row LANDED (see `markOptimisticInboxBacked`).
-// The idle sweep skips these: the control plane holds the message durably and
-// will deliver it, so "the session went idle and this was never echoed" is
-// not evidence it was lost.
-const inboxBackedOptimisticIds = new Map<string, Set<string>>();
-// optimistic id → the runtime id that superseded it, and the inverse. Written
-// at supersede time (SSE and hydrate), so a host can keep one identity for a
-// prompt across the swap. Bounded by the number of prompts sent from this tab
-// per session; released with the session.
-const optimisticEchoes = new Map<string, Map<string, string>>();
-const optimisticOrigins = new Map<string, Map<string, string>>();
-// Message ids the CONTROL PLANE still owns after the runtime confirmed them:
-// the echo (same id or re-minted) of an inbox-backed optimistic send. The
-// server can take such a message back out of the runtime and place it again
-// under a new id — a stranded mid-turn prompt being re-placed, a Stop taking
-// an unread prompt back into the queue. A `message.removed` for one of these
-// is not "the message is gone", it is "the message is between two ids": the
-// bubble is re-marked optimistic (dispatched, inbox-backed) and the next echo
-// supersedes it, instead of the bubble blinking out and a new one appearing.
-// Released with the session.
-const controlPlaneOwnedIds = new Map<string, Set<string>>();
-// Message ids the user explicitly CANCELLED (`DELETE .../prompts`). The
-// runtime may keep a part-less husk of the message (a busy loop refuses the
-// whole-message delete; the parts are emptied instead), and every later
-// transcript read would resurrect it as an empty bubble. A tombstoned id is
-// dropped from incoming reads and events. Released with the session.
-const cancelledMessageIds = new Map<string, Set<string>>();
-// Message ids that came from the DISK CACHE and have not yet been seen in a
-// runtime read. The cache is a first-paint accelerator; a message it holds
-// that the runtime's own tail — covering that message's position — does not,
-// never existed there (an optimistic stub mirrored to disk before its echo)
-// and must not outlive the first authoritative read.
-const cacheSourcedIds = new Map<string, Set<string>>();
+// ============================================================================
+
+// One record per session for every "what this tab has marked about this
+// session's ids" collection: a new mark joins the record, releasing a session
+// deletes it (`forgetSessionIds`), `reset()` clears the map.
+interface SessionScratch {
+	// Track optimistic message IDs so we can remove them when the server sends
+	// the real user message (which has a different, server-generated ID).
+	// Keyed by session, like every other field in this store. It used to be one
+	// process-wide `Set<string>` shared by every session in the tab, and
+	// `clearSession` never released its entries — so ids accumulated for the
+	// lifetime of the tab, and a leaked id made `hydrate` skip parts for any real
+	// message that happened to reuse it (`if (isOptimistic(...)) continue`).
+	optimisticIds: Set<string>;
+	// Optimistic ids whose prompt has actually been POSTed. An optimistic message
+	// starts `pending` (absent here) and becomes `dispatched` when the send goes
+	// out. `hydrate` never lets a `pending` message be superseded by an ordinal
+	// match: the server has not been told it exists, so nothing the server returns
+	// can be a copy of it.
+	dispatchedOptimisticIds: Set<string>;
+	// Optimistic ids whose prompt-inbox row LANDED (see `markOptimisticInboxBacked`).
+	// The idle sweep skips these: the control plane holds the message durably and
+	// will deliver it, so "the session went idle and this was never echoed" is
+	// not evidence it was lost.
+	inboxBackedOptimisticIds: Set<string>;
+	// optimistic id → the runtime id that superseded it, and the inverse. Written
+	// at supersede time (SSE and hydrate), so a host can keep one identity for a
+	// prompt across the swap. Bounded by the number of prompts sent from this tab
+	// per session; released with the session.
+	optimisticEchoes: Map<string, string>;
+	optimisticOrigins: Map<string, string>;
+	// Message ids the CONTROL PLANE still owns after the runtime confirmed them:
+	// the echo (same id or re-minted) of an inbox-backed optimistic send. The
+	// server can take such a message back out of the runtime and place it again
+	// under a new id — a stranded mid-turn prompt being re-placed, a Stop taking
+	// an unread prompt back into the queue. A `message.removed` for one of these
+	// is not "the message is gone", it is "the message is between two ids": the
+	// bubble is re-marked optimistic (dispatched, inbox-backed) and the next echo
+	// supersedes it, instead of the bubble blinking out and a new one appearing.
+	// Released with the session.
+	controlPlaneOwnedIds: Set<string>;
+	// Message ids the user explicitly CANCELLED (`DELETE .../prompts`). The
+	// runtime may keep a part-less husk of the message (a busy loop refuses the
+	// whole-message delete; the parts are emptied instead), and every later
+	// transcript read would resurrect it as an empty bubble. A tombstoned id is
+	// dropped from incoming reads and events. Released with the session.
+	cancelledMessageIds: Set<string>;
+	// Message ids that came from the DISK CACHE and have not yet been seen in a
+	// runtime read. The cache is a first-paint accelerator; a message it holds
+	// that the runtime's own tail — covering that message's position — does not,
+	// never existed there (an optimistic stub mirrored to disk before its echo)
+	// and must not outlive the first authoritative read.
+	cacheSourcedIds: Set<string>;
+	// Track message IDs where optimistic parts were bridged to the real message,
+	// keyed by session — same shape and same reason as optimisticIds above. When
+	// the first real part arrives for a bridged message, the bridged parts are
+	// cleared so optimistic and real parts don't co-exist (which would
+	// double-render the user's text).
+	//
+	// It used to be one process-wide Set<string> shared by every session in the
+	// tab, cleared only by reset() — clearSession never released its entries, so
+	// ids accumulated for the lifetime of the tab. A leaked id made upsertPart
+	// treat any LATER message that reused it (in any session) as still-bridged:
+	// the first real text part for that id wiped every part already stored under
+	// it, even though nothing was ever bridged in that session. Keying by session
+	// and releasing only the ending session's bucket (via forgetSessionIds)
+	// fixes it.
+	bridgedPartIds: Set<string>;
+	// Track part IDs that have received at least one delta, keyed by session —
+	// same shape and same reason as optimisticIds above. Used by upsertPart to
+	// avoid overwriting delta-accumulated text with a stale message.part.updated
+	// snapshot that arrives in the same event batch. A session's entries are
+	// cleared when THAT session's stream goes idle or errors.
+	//
+	// It used to be one process-wide Set<string> shared by every session in the
+	// tab, cleared wholesale on session.idle/session.error. Session B going idle
+	// wiped session A's tracking while A was still streaming, so the guard below
+	// stopped protecting A — a stale snapshot could then overwrite A's
+	// delta-accumulated text. Keying by session and releasing only the ending
+	// session's bucket fixes it.
+	deltaActiveParts: Set<string>;
+	// ---------------------------------------------------------------------------
+	// Part-delta idempotency (T14).
+	//
+	// `applyPartDelta` used to be `existing + delta` with nothing consulted for
+	// identity — a duplicate delivery of the SAME `message.part.delta` doubled
+	// the streamed text. Realistic duplicate sources: the vendor SSE client's
+	// retry loop briefly stacking a second live connection before
+	// `event-stream.ts`'s own single-live-stream invariant (or the `sseMaxRetryAttempts:
+	// 1` pin) catches up, or a second mounted subscriber replaying the same
+	// stream.
+	//
+	// The wire's own `EventMessagePartDelta` (`@opencode-ai/sdk`'s
+	// `v2/gen/types.gen.d.ts`) carries a top-level `id: string` on every event —
+	// NOT inside `properties`, so `applyEvent`'s `message.part.delta` case now
+	// threads `event.id` through as `applyPartDelta`'s new optional trailing
+	// `eventID` param. Two independently-broadcast SSE readers of the SAME
+	// published event (a stacked connection, a second subscriber) both receive
+	// the identical event object and therefore the identical `id` — which makes
+	// event identity the correct dedupe key, not delta CONTENT: content-based
+	// dedupe (e.g. "reject a delta whose text matches the last one applied at
+	// this length") would false-positive on legitimately-repeated content, such
+	// as streaming "..." one identical character at a time.
+	//
+	// Keyed by session (same shape/reason as the maps above), then by
+	// `${messageID}:${partID}:${field}` (a part could in principle accumulate
+	// more than one delta-bearing field) to the SET of event ids already applied
+	// for that key. A stacked duplicate connection can redeliver a whole tail of
+	// the stream, not just the single most-recent event — "replay the last N
+	// deltas again" is exactly what a reconnect-and-resume does — so every
+	// applied id for the key is kept, not just the last one; a Set lookup stays
+	// O(1) either way. Bounded by the per-session clears below, so this never
+	// grows across an entire session's lifetime, only within one streaming turn.
+	// A delta that arrives with no `eventID` (a caller predating this change, or
+	// a hand-built synthetic delta) gets NO protection — identical to this
+	// function's behavior before this change — rather than risk a content-based
+	// false positive (see the module comment above for why content isn't used).
+	//
+	// Kept across `session.idle` to reject a reconnect's replay of final deltas.
+	// New turns use new part ids. Released by `forgetSessionIds`/`reset()`.
+	deltaEventTails: Map<string, Set<string>>;
+	// Where the live stream's next delta belongs in a part's text, per session,
+	// keyed like `deltaEventTails`. It follows the stream: a part's first frame, a
+	// snapshot, each delta. A hydrate does not move it. So when a tail read wrote
+	// text the stream already sent, the deltas that re-deliver it (a reconnect's
+	// replay, a queue still draining) find their own text at their offset and are
+	// skipped, whatever their event ids. Released with `deltaEventTails`.
+	deltaOffsets: Map<string, number>;
+	// Session-scoped tracking for `session.error`'s stub assistant message (see
+	// the handler below) — same shape/reason as the maps above, except the value
+	// is a MAP: stub message id → the id of the user message whose turn failed
+	// (`null` only when the session held no user message at all).
+	//
+	// The parent is tracked, not merely implied, because every question asked
+	// about a stub afterwards is a question about its TURN. A stub stands in for
+	// the assistant message that turn never produced, so `hydrate` may drop it
+	// only once the server's transcript answers THAT turn — a session-wide "any
+	// assistant message exists" test deleted the only record of a failure the
+	// moment an EARLIER turn's reply arrived (the 2026-08-19 report: the first
+	// `ModelNotFound` rendered nothing at all).
+	//
+	// Released wholesale by `forgetSessionIds`/`reset()`; NOT cleared on
+	// idle/error — the stub message it names still lives in `messages[sessionID]`
+	// until hydrate reconciles it or the session itself ends.
+	stubAssistantIds: Map<string, string | null>;
+}
+
+const sessionScratch = new Map<string, SessionScratch>();
+
+/** This session's mark record, created on first mark. Read paths read
+ *  `sessionScratch.get(...)` directly: a read must never create the record,
+ *  or a released session's record would come back on the next look. */
+function scratchOf(sessionID: string): SessionScratch {
+	let marks = sessionScratch.get(sessionID);
+	if (!marks) {
+		marks = {
+			optimisticIds: new Set(),
+			dispatchedOptimisticIds: new Set(),
+			inboxBackedOptimisticIds: new Set(),
+			optimisticEchoes: new Map(),
+			optimisticOrigins: new Map(),
+			controlPlaneOwnedIds: new Set(),
+			cancelledMessageIds: new Set(),
+			cacheSourcedIds: new Set(),
+			bridgedPartIds: new Set(),
+			deltaActiveParts: new Set(),
+			deltaEventTails: new Map(),
+			deltaOffsets: new Map(),
+			stubAssistantIds: new Map(),
+		};
+		sessionScratch.set(sessionID, marks);
+	}
+	return marks;
+}
 
 /**
  * Does this session hold messages, every one of them painted from a saved copy
@@ -634,116 +761,56 @@ const cacheSourcedIds = new Map<string, Set<string>>();
 export function hasOnlyCacheSourcedMessages(sessionID: string): boolean {
 	const messages = useSyncStore.getState().messages[sessionID];
 	if (!messages || messages.length === 0) return false;
-	const cached = cacheSourcedIds.get(sessionID);
+	const cached = sessionScratch.get(sessionID)?.cacheSourcedIds;
 	if (!cached) return false;
 	return messages.every((message) => cached.has(message.id));
 }
-
-/**
- * Does this session hold `messageID` from a runtime read or a live event, not only from a
- * saved copy? A saved window's cursor names its oldest message: once the runtime holds that
- * message and has no older page of its own, every older saved message is in the runtime too.
- */
-export function hasRuntimeConfirmedMessage(sessionID: string, messageID: string): boolean {
-	const messages = useSyncStore.getState().messages[sessionID];
-	if (!messages) return false;
-	// One id set per message array: every hook that asks between two writes of the session's
-	// list reads the same set (a streamed part delta does not replace the list).
-	let ids = messageIdSets.get(messages);
-	if (!ids) messageIdSets.set(messages, (ids = new Set(messages.map((message) => message.id))));
-	return ids.has(messageID) && !cacheSourcedIds.get(sessionID)?.has(messageID);
-}
-const messageIdSets = new WeakMap<readonly Message[], Set<string>>();
 
 function recordOptimisticEcho(sessionID: string, optimisticID: string, echoID: string): void {
 	if (optimisticID === echoID) return;
 	// Chain through an earlier swap: a message that itself superseded an
 	// optimistic id keeps pointing the host at that ORIGINAL id, so a second
 	// re-placement does not change the identity the host keyed its bubble on.
-	const origin = optimisticOrigins.get(sessionID)?.get(optimisticID) ?? optimisticID;
-	let fwd = optimisticEchoes.get(sessionID);
-	if (!fwd) optimisticEchoes.set(sessionID, (fwd = new Map()));
-	fwd.set(origin, echoID);
-	if (origin !== optimisticID) fwd.set(optimisticID, echoID);
-	let rev = optimisticOrigins.get(sessionID);
-	if (!rev) optimisticOrigins.set(sessionID, (rev = new Map()));
-	rev.set(echoID, origin);
+	const marks = scratchOf(sessionID);
+	const origin = marks.optimisticOrigins.get(optimisticID) ?? optimisticID;
+	marks.optimisticEchoes.set(origin, echoID);
+	if (origin !== optimisticID) marks.optimisticEchoes.set(optimisticID, echoID);
+	marks.optimisticOrigins.set(echoID, origin);
 }
 
 /** Forget every optimistic mark for one id — confirmed, superseded, or removed. */
 function releaseOptimisticId(sessionID: string, id: string): void {
-	untrackId(optimisticIds, sessionID, id);
-	untrackId(dispatchedOptimisticIds, sessionID, id);
-	untrackId(inboxBackedOptimisticIds, sessionID, id);
+	const marks = sessionScratch.get(sessionID);
+	if (!marks) return;
+	marks.optimisticIds.delete(id);
+	marks.dispatchedOptimisticIds.delete(id);
+	marks.inboxBackedOptimisticIds.delete(id);
 }
 
 /** The runtime confirmed an inbox-backed optimistic send under `echoID`
  *  (same id, or re-minted): the control plane still owns that message. */
 function releaseConfirmedOptimisticId(sessionID: string, optimisticID: string, echoID: string): void {
-	if (hasTrackedId(inboxBackedOptimisticIds, sessionID, optimisticID)) {
-		trackId(controlPlaneOwnedIds, sessionID, echoID);
+	const marks = sessionScratch.get(sessionID);
+	if (marks?.inboxBackedOptimisticIds.has(optimisticID)) {
+		marks.controlPlaneOwnedIds.add(echoID);
 	}
 	releaseOptimisticId(sessionID, optimisticID);
-}
-
-function trackId(store: Map<string, Set<string>>, sessionID: string, id: string): void {
-	const bucket = store.get(sessionID);
-	if (bucket) bucket.add(id);
-	else store.set(sessionID, new Set([id]));
-}
-
-function untrackId(store: Map<string, Set<string>>, sessionID: string, id: string): void {
-	const bucket = store.get(sessionID);
-	if (!bucket) return;
-	bucket.delete(id);
-	if (bucket.size === 0) store.delete(sessionID);
-}
-
-function hasTrackedId(
-	store: Map<string, Set<string>>,
-	sessionID: string,
-	id: string,
-): boolean {
-	return store.get(sessionID)?.has(id) ?? false;
 }
 
 /** Release every id this session was tracking — called from `clearSession`
  *  and from eviction. */
 function forgetSessionIds(sessionID: string): void {
-	optimisticIds.delete(sessionID);
-	dispatchedOptimisticIds.delete(sessionID);
-	inboxBackedOptimisticIds.delete(sessionID);
-	optimisticEchoes.delete(sessionID);
-	optimisticOrigins.delete(sessionID);
-	controlPlaneOwnedIds.delete(sessionID);
-	cacheSourcedIds.delete(sessionID);
-	cancelledMessageIds.delete(sessionID);
+	sessionScratch.delete(sessionID);
 	// The joined rows hold the very message and part arrays this session's
 	// data is being dropped from. Left behind, they keep the transcript
 	// reachable and the drop achieves nothing.
 	sessionMessageRows.delete(sessionID);
-	// A session cleared without ever going idle/erroring (the only other
-	// release points, below) would otherwise leave a dead bucket in
-	// deltaActiveParts for the lifetime of the tab — the exact leak class
-	// this function exists to prevent for optimisticIds above.
-	deltaActiveParts.delete(sessionID);
-	// Same leak class, on bridgedPartIds: it used to be released only by
-	// reset() (which application code never calls), not by clearSession, so
-	// a message id stayed "bridged" forever once bridged once. If a LATER
-	// message in a different session ever reused that id, upsertPart's
-	// bridge-clearing branch fired for it too, wiping every part already
-	// stored under it. See bridgedPartIds below.
-	bridgedPartIds.delete(sessionID);
-	// Same leak class, on the two T14 + T16 maps above.
-	deltaEventTails.delete(sessionID);
-	deltaOffsets.delete(sessionID);
-	stubAssistantIds.delete(sessionID);
 }
 
 const isOptimistic = (sessionID: string, messageID: string) =>
-	hasTrackedId(optimisticIds, sessionID, messageID);
+	sessionScratch.get(sessionID)?.optimisticIds.has(messageID) ?? false;
 const isDispatched = (sessionID: string, messageID: string) =>
-	hasTrackedId(dispatchedOptimisticIds, sessionID, messageID);
+	sessionScratch.get(sessionID)?.dispatchedOptimisticIds.has(messageID) ?? false;
 
 /**
  * Could a part for `messageID` belong to the ECHO of a prompt this tab has
@@ -770,134 +837,29 @@ const isDispatched = (sessionID: string, messageID: string) =>
  * `message.updated` that follows creates the message and picks it up.
  */
 const awaitsUserEcho = (sessionID: string, messageID: string): boolean => {
-	if (optimisticOrigins.get(sessionID)?.has(messageID)) return true;
-	const pending = optimisticIds.get(sessionID);
+	const marks = sessionScratch.get(sessionID);
+	if (marks?.optimisticOrigins.has(messageID)) return true;
+	const pending = marks?.optimisticIds;
 	if (!pending) return false;
 	for (const id of pending) {
 		if (!isDispatched(sessionID, id)) continue;
-		if (optimisticEchoes.get(sessionID)?.get(id)) continue;
+		if (marks?.optimisticEchoes.get(id)) continue;
 		return true;
 	}
 	return false;
 };
-// Track message IDs where optimistic parts were bridged to the real message,
-// keyed by session — same shape and same reason as optimisticIds above. When
-// the first real part arrives for a bridged message, the bridged parts are
-// cleared so optimistic and real parts don't co-exist (which would
-// double-render the user's text).
-//
-// It used to be one process-wide Set<string> shared by every session in the
-// tab, cleared only by reset() — clearSession never released its entries, so
-// ids accumulated for the lifetime of the tab. A leaked id made upsertPart
-// treat any LATER message that reused it (in any session) as still-bridged:
-// the first real text part for that id wiped every part already stored under
-// it, even though nothing was ever bridged in that session. Keying by session
-// and releasing only the ending session's bucket (via forgetSessionIds)
-// fixes it.
-const bridgedPartIds = new Map<string, Set<string>>();
-
-// Track part IDs that have received at least one delta, keyed by session —
-// same shape and same reason as optimisticIds above. Used by upsertPart to
-// avoid overwriting delta-accumulated text with a stale message.part.updated
-// snapshot that arrives in the same event batch. A session's entries are
-// cleared when THAT session's stream goes idle or errors.
-//
-// It used to be one process-wide Set<string> shared by every session in the
-// tab, cleared wholesale on session.idle/session.error. Session B going idle
-// wiped session A's tracking while A was still streaming, so the guard below
-// stopped protecting A — a stale snapshot could then overwrite A's
-// delta-accumulated text. Keying by session and releasing only the ending
-// session's bucket fixes it.
-const deltaActiveParts = new Map<string, Set<string>>();
-
-// ---------------------------------------------------------------------------
-// Part-delta idempotency (T14).
-//
-// `applyPartDelta` used to be `existing + delta` with nothing consulted for
-// identity — a duplicate delivery of the SAME `message.part.delta` doubled
-// the streamed text. Realistic duplicate sources: the vendor SSE client's
-// retry loop briefly stacking a second live connection before
-// `event-stream.ts`'s own single-live-stream invariant (or the `sseMaxRetryAttempts:
-// 1` pin) catches up, or a second mounted subscriber replaying the same
-// stream.
-//
-// The wire's own `EventMessagePartDelta` (`@opencode-ai/sdk`'s
-// `v2/gen/types.gen.d.ts`) carries a top-level `id: string` on every event —
-// NOT inside `properties`, so `applyEvent`'s `message.part.delta` case now
-// threads `event.id` through as `applyPartDelta`'s new optional trailing
-// `eventID` param. Two independently-broadcast SSE readers of the SAME
-// published event (a stacked connection, a second subscriber) both receive
-// the identical event object and therefore the identical `id` — which makes
-// event identity the correct dedupe key, not delta CONTENT: content-based
-// dedupe (e.g. "reject a delta whose text matches the last one applied at
-// this length") would false-positive on legitimately-repeated content, such
-// as streaming "..." one identical character at a time.
-//
-// Keyed by session (same shape/reason as the maps above), then by
-// `${messageID}:${partID}:${field}` (a part could in principle accumulate
-// more than one delta-bearing field) to the SET of event ids already applied
-// for that key. A stacked duplicate connection can redeliver a whole tail of
-// the stream, not just the single most-recent event — "replay the last N
-// deltas again" is exactly what a reconnect-and-resume does — so every
-// applied id for the key is kept, not just the last one; a Set lookup stays
-// O(1) either way. Bounded by the per-session clears below, so this never
-// grows across an entire session's lifetime, only within one streaming turn.
-// A delta that arrives with no `eventID` (a caller predating this change, or
-// a hand-built synthetic delta) gets NO protection — identical to this
-// function's behavior before this change — rather than risk a content-based
-// false positive (see the module comment above for why content isn't used).
-//
-// Kept across `session.idle` to reject a reconnect's replay of final deltas.
-// New turns use new part ids. Released by `forgetSessionIds`/`reset()`.
-const deltaEventTails = new Map<string, Map<string, Set<string>>>();
-
-// Where the live stream's next delta belongs in a part's text, per session,
-// keyed like `deltaEventTails`. It follows the stream: a part's first frame, a
-// snapshot, each delta. A hydrate does not move it. So when a tail read wrote
-// text the stream already sent, the deltas that re-deliver it (a reconnect's
-// replay, a queue still draining) find their own text at their offset and are
-// skipped, whatever their event ids. Released with `deltaEventTails`.
-const deltaOffsets = new Map<string, Map<string, number>>();
 
 function setDeltaOffset(sessionID: string, key: string, offset: number): void {
-	let bucket = deltaOffsets.get(sessionID);
-	if (!bucket) {
-		bucket = new Map();
-		deltaOffsets.set(sessionID, bucket);
-	}
-	bucket.set(key, offset);
+	scratchOf(sessionID).deltaOffsets.set(key, offset);
 }
-
-/** Session-scoped tracking for `session.error`'s stub assistant message (see
- *  the handler below) — same shape/reason as the maps above, except the value
- *  is a MAP: stub message id → the id of the user message whose turn failed
- *  (`null` only when the session held no user message at all).
- *
- *  The parent is tracked, not merely implied, because every question asked
- *  about a stub afterwards is a question about its TURN. A stub stands in for
- *  the assistant message that turn never produced, so `hydrate` may drop it
- *  only once the server's transcript answers THAT turn — a session-wide "any
- *  assistant message exists" test deleted the only record of a failure the
- *  moment an EARLIER turn's reply arrived (the 2026-08-19 report: the first
- *  `ModelNotFound` rendered nothing at all).
- *
- *  Released wholesale by `forgetSessionIds`/`reset()`; NOT cleared on
- *  idle/error — the stub message it names still lives in `messages[sessionID]`
- *  until hydrate reconciles it or the session itself ends. */
-const stubAssistantIds = new Map<string, Map<string, string | null>>();
 
 /** Remember `stubId` as this session's stand-in for the turn `parentId` opened. */
 function trackStub(sessionID: string, stubId: string, parentId: string | null): void {
-	const bucket = stubAssistantIds.get(sessionID);
-	if (bucket) bucket.set(stubId, parentId);
-	else stubAssistantIds.set(sessionID, new Map([[stubId, parentId]]));
+	scratchOf(sessionID).stubAssistantIds.set(stubId, parentId);
 }
 
 function untrackStub(sessionID: string, stubId: string): void {
-	const bucket = stubAssistantIds.get(sessionID);
-	if (!bucket) return;
-	bucket.delete(stubId);
-	if (bucket.size === 0) stubAssistantIds.delete(sessionID);
+	sessionScratch.get(sessionID)?.stubAssistantIds.delete(stubId);
 }
 
 /** The stub id for the turn `userId` opened.
@@ -977,7 +939,7 @@ function rekeyStubParent(
 	fromId: string,
 	toId: string,
 ): Message[] {
-	const bucket = stubAssistantIds.get(sessionID);
+	const bucket = sessionScratch.get(sessionID)?.stubAssistantIds;
 	if (!bucket) return list as Message[];
 	const moved = [...bucket.entries()].filter(([, parentId]) => parentId === fromId);
 	if (moved.length === 0) return list as Message[];
@@ -1257,11 +1219,7 @@ function pruneDetachedSessions(messages: Record<string, Message[]>): string[] {
  * `deltaEventTails`. Call it only once the delta has a target.
  */
 function takeDeltaEventId(sessionID: string, tailKey: string, id: string): boolean {
-	let sessionTails = deltaEventTails.get(sessionID);
-	if (!sessionTails) {
-		sessionTails = new Map();
-		deltaEventTails.set(sessionID, sessionTails);
-	}
+	const sessionTails = scratchOf(sessionID).deltaEventTails;
 	let appliedIds = sessionTails.get(tailKey);
 	if (appliedIds?.has(id)) return false;
 	if (!appliedIds) {
@@ -1319,7 +1277,7 @@ function appendPartDeltas(
 	field: string,
 	pieces: readonly { id?: string; delta: string }[],
 ) {
-	trackId(deltaActiveParts, sessionID, partID);
+	scratchOf(sessionID).deltaActiveParts.add(partID);
 	let applied = false;
 	useSyncStore.setState((s) => {
 		const list = s.parts[messageID];
@@ -1337,7 +1295,7 @@ function appendPartDeltas(
 		if (message?.role === "assistant" && message.time?.completed) return s;
 		const existing = ((list[result.index] as unknown as Record<string, unknown>)[field] as string | undefined) ?? "";
 		const offsetKey = `${messageID}:${partID}:${field}`;
-		let offset = deltaOffsets.get(sessionID)?.get(offsetKey) ?? existing.length;
+		let offset = sessionScratch.get(sessionID)?.deltaOffsets.get(offsetKey) ?? existing.length;
 		let text = existing;
 		for (const piece of pieces) {
 			// Duplicate-delivery no-op — see `deltaEventTails` above. Only acts
@@ -1408,12 +1366,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 	upsertMessage: (sessionID, message) =>
 		set((s) => {
 			const list = s.messages[sessionID] ?? [];
-			// First try binary search (fast path for sorted lists).
-			const result = Binary.search(list, message.id, (m) => m.id);
-			// Verify the binary search result — the list may be temporarily
-			// unsorted due to optimistic messages appended at the end.
-			const bsValid = result.found && list[result.index]?.id === message.id;
-			const index = bsValid ? result.index : list.findIndex((m) => m.id === message.id);
+			const index = indexOfId(list, message.id, (m) => m.id);
 			if (index !== -1) {
 				// A message completes once. An earlier frame of it, replayed after
 				// the turn ended, must not reopen it: deltas of a completed message
@@ -1445,11 +1398,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 		set((s) => {
 			const list = s.messages[sessionID];
 			if (!list) return s;
-			// Try binary search first, fall back to linear for unsorted lists.
-			const result = Binary.search(list, messageID, (m) => m.id);
-			const idx = (result.found && list[result.index]?.id === messageID)
-				? result.index
-				: list.findIndex((m) => m.id === messageID);
+			const idx = indexOfId(list, messageID, (m) => m.id);
 			if (idx === -1) return s;
 			const next = [...list];
 			next.splice(idx, 1);
@@ -1469,7 +1418,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// that a real part has arrived — prevents double-rendering.
 			let list: Part[];
 			let bridgeCleared = false;
-			if (hasTrackedId(bridgedPartIds, partSessionID, messageID)) {
+			if (sessionScratch.get(partSessionID)?.bridgedPartIds.has(messageID)) {
 				// T16 — retire the bridge on ANY real part arrival for this
 				// message: text, non-text (tool/file/step/…), or an empty-text
 				// snapshot. This used to retire ONLY on a non-empty text part, so a
@@ -1479,7 +1428,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				// The server has started sending this message's real parts either
 				// way, so the bridge's job — standing in until real data exists —
 				// is done the moment ANY of them arrives.
-				untrackId(bridgedPartIds, partSessionID, messageID);
+				sessionScratch.get(partSessionID)?.bridgedPartIds.delete(messageID);
 				list = [];
 				bridgeCleared = true;
 			} else {
@@ -1544,7 +1493,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				// text (missing the beginning). Skip the insert — the delta-
 				// created version already exists in the parts list under the
 				// message entry created by the delta handler.
-					if (hasTrackedId(deltaActiveParts, partSessionID, part.id) && isTextLikePart(part)) {
+					if (sessionScratch.get(partSessionID)?.deltaActiveParts.has(part.id) && isTextLikePart(part)) {
 					// Delta-created part already exists — check all messageID
 					// buckets since the delta handler may have stored it under
 					// a different (stub) message entry.
@@ -1713,7 +1662,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 	},
 
 	optimisticAdd: (sessionID, message, messageParts) => {
-		trackId(optimisticIds, sessionID, message.id);
+		scratchOf(sessionID).optimisticIds.add(message.id);
 		// The user has typed into this session, so the disk repaint stands down.
 		// `hydrate`'s ordinal fallback pairs an in-flight optimistic message with
 		// the oldest unclaimed real user message, and EVERY message in a disk
@@ -1741,25 +1690,26 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 
 	markOptimisticDispatched: (sessionID, messageID) => {
 		if (isOptimistic(sessionID, messageID))
-			trackId(dispatchedOptimisticIds, sessionID, messageID);
+			scratchOf(sessionID).dispatchedOptimisticIds.add(messageID);
 	},
 
 	markOptimisticInboxBacked: (sessionID, messageID) => {
 		if (isOptimistic(sessionID, messageID))
-			trackId(inboxBackedOptimisticIds, sessionID, messageID);
+			scratchOf(sessionID).inboxBackedOptimisticIds.add(messageID);
 	},
 
 	optimisticEchoOf: (sessionID, optimisticID) =>
-		optimisticEchoes.get(sessionID)?.get(optimisticID),
+		sessionScratch.get(sessionID)?.optimisticEchoes.get(optimisticID),
 
-	optimisticOriginOf: (sessionID, echoID) => optimisticOrigins.get(sessionID)?.get(echoID),
+	optimisticOriginOf: (sessionID, echoID) =>
+		sessionScratch.get(sessionID)?.optimisticOrigins.get(echoID),
 
 	isOptimisticMessage: (sessionID, messageID) => isOptimistic(sessionID, messageID),
 
 	forgetControlPlaneMessage: (sessionID, messageID) => {
-		untrackId(controlPlaneOwnedIds, sessionID, messageID);
+		sessionScratch.get(sessionID)?.controlPlaneOwnedIds.delete(messageID);
 		releaseOptimisticId(sessionID, messageID);
-		trackId(cancelledMessageIds, sessionID, messageID);
+		scratchOf(sessionID).cancelledMessageIds.add(messageID);
 		get().removeMessage(sessionID, messageID);
 	},
 
@@ -1780,7 +1730,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 		// Follow the chain to the id that IS on screen and register from there.
 		const live = isOptimistic(sessionID, optimisticID)
 			? optimisticID
-			: optimisticEchoes.get(sessionID)?.get(optimisticID);
+			: sessionScratch.get(sessionID)?.optimisticEchoes.get(optimisticID);
 		if (!live || live === echoID || !isOptimistic(sessionID, live)) return;
 		recordOptimisticEcho(sessionID, live, echoID);
 
@@ -1813,7 +1763,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// the bubble never blinks empty across the swap.
 			if (bridge?.length && !newParts[echoID]?.length) {
 				newParts[echoID] = bridge;
-				trackId(bridgedPartIds, sessionID, echoID);
+				scratchOf(sessionID).bridgedPartIds.add(echoID);
 			}
 			return { messages: { ...s.messages, [sessionID]: next }, parts: newParts };
 		});
@@ -1825,14 +1775,15 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 		// message and its parts; put the optimistic marks back (dispatched, so
 		// the ordinal echo match may claim it; inbox-backed, so the idle sweep
 		// leaves it) and let the next echo supersede it.
-		if (!hasTrackedId(controlPlaneOwnedIds, sessionID, messageID)) return false;
+		const marks = sessionScratch.get(sessionID);
+		if (!marks?.controlPlaneOwnedIds.has(messageID)) return false;
 		const list = get().messages[sessionID];
 		const message = list?.find((m) => m.id === messageID);
 		if (!message || message.role !== "user") return false;
-		untrackId(controlPlaneOwnedIds, sessionID, messageID);
-		trackId(optimisticIds, sessionID, messageID);
-		trackId(dispatchedOptimisticIds, sessionID, messageID);
-		trackId(inboxBackedOptimisticIds, sessionID, messageID);
+		marks.controlPlaneOwnedIds.delete(messageID);
+		marks.optimisticIds.add(messageID);
+		marks.dispatchedOptimisticIds.add(messageID);
+		marks.inboxBackedOptimisticIds.add(messageID);
 		return true;
 	},
 
@@ -1881,7 +1832,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				.filter(
 					(m) =>
 						isOptimistic(sessionID, m.id) &&
-						!hasTrackedId(inboxBackedOptimisticIds, sessionID, m.id),
+						!sessionScratch.get(sessionID)?.inboxBackedOptimisticIds.has(m.id),
 				)
 				.map((m) => m.id);
 			if (optIds.length === 0) return s;
@@ -2044,7 +1995,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// An authoritative load — the disk repaint itself, or a reconcile —
 			// re-establishes the session, so its entry is no longer a fragment.
 			evictedSessions.delete(sessionID);
-			const tombstones = cancelledMessageIds.get(sessionID);
+			const tombstones = sessionScratch.get(sessionID)?.cancelledMessageIds;
 			// NOT re-sorted. `MessageV2.page()` orders by `time_created`
 			// server-side and always has, so the snapshot arrives in the only
 			// order that is true. Re-deriving one from id strings was wrong the
@@ -2056,7 +2007,8 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				.map((m) => m.info);
 			const fromCache = opts?.source === "cache";
 			if (fromCache) {
-				for (const m of incoming) trackId(cacheSourcedIds, sessionID, m.id);
+				const cacheSourced = scratchOf(sessionID).cacheSourcedIds;
+				for (const m of incoming) cacheSourced.add(m.id);
 			}
 			// A RUNTIME read settles the cache's provisional messages: the ones
 			// it contains are real; the ones it lacks but whose position it
@@ -2075,18 +2027,18 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// id comparison at all is a separate open question — see B-note in
 			// deliberately left as-is here.)
 			let droppedPhantoms: Set<string> | null = null;
-			const provisional = fromCache ? undefined : cacheSourcedIds.get(sessionID);
+			const provisional = fromCache ? undefined : sessionScratch.get(sessionID)?.cacheSourcedIds;
 			if (provisional && provisional.size > 0 && incoming.length > 0) {
 				let oldestIncoming = incoming[0].id;
 				for (const m of incoming) if (m.id < oldestIncoming) oldestIncoming = m.id;
 				const incomingIds = new Set(incoming.map((m) => m.id));
 				for (const id of [...provisional]) {
 					if (incomingIds.has(id)) {
-						untrackId(cacheSourcedIds, sessionID, id);
+						provisional.delete(id);
 						continue;
 					}
 					if (id >= oldestIncoming && !isOptimistic(sessionID, id)) {
-						untrackId(cacheSourcedIds, sessionID, id);
+						provisional.delete(id);
 						(droppedPhantoms ??= new Set()).add(id);
 					}
 				}
@@ -2109,11 +2061,11 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			for (const info of incoming) {
 				if (info.role !== "assistant" || !isStubShaped(info.id)) continue;
 				if (!(info as { error?: unknown }).error) continue;
-				if (stubAssistantIds.get(sessionID)?.has(info.id)) continue;
+				if (sessionScratch.get(sessionID)?.stubAssistantIds.has(info.id)) continue;
 				trackStub(sessionID, info.id, info.parentID ?? null);
 			}
 
-			const trackedStubIds = stubAssistantIds.get(sessionID);
+			const trackedStubIds = sessionScratch.get(sessionID)?.stubAssistantIds;
 			/** Stubs held back from the merge below until their parent turn is
 			 *  known (an optimistic parent may be superseded by the server's own
 			 *  copy in this very snapshot). */
@@ -2195,7 +2147,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				const optimisticParts = s.parts[m.id];
 				const entry = msgs.find((x) => x.info.id === m.id);
 				if ((entry?.parts?.length ?? 0) === 0 && optimisticParts?.length) {
-					trackId(bridgedPartIds, sessionID, m.id);
+					scratchOf(sessionID).bridgedPartIds.add(m.id);
 				}
 			}
 
@@ -2277,7 +2229,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			const claimed = new Set<string>();
 			for (const m of unmatchedOptimisticUsers) {
 				// Alias first: the inbox row announced this message's echo id.
-				const alias = optimisticEchoes.get(sessionID)?.get(m.id);
+				const alias = sessionScratch.get(sessionID)?.optimisticEchoes.get(m.id);
 				if (alias && unclaimedEchoes.has(alias) && !claimed.has(alias)) {
 					claimed.add(alias);
 					supersededOptimistic.push(m.id);
@@ -2294,9 +2246,9 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 					isDispatched(sessionID, m.id) &&
 					// Inbox rows identify their own echo. An unrelated new user
 					// message must never take a prompt still waiting in that inbox.
-					!hasTrackedId(inboxBackedOptimisticIds, sessionID, m.id) &&
+					!sessionScratch.get(sessionID)?.inboxBackedOptimisticIds.has(m.id) &&
 					// Known-different echo → never consume someone else's.
-					!optimisticEchoes.get(sessionID)?.get(m.id)
+					!sessionScratch.get(sessionID)?.optimisticEchoes.get(m.id)
 						? claimable[next]
 						: undefined;
 				if (echo) {
@@ -2404,13 +2356,14 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				const serverHasParts = (echoEntry?.parts?.length ?? 0) > 0;
 				if (serverHasParts || newParts[echoId]?.length) continue;
 				newParts[echoId] = bridge;
-				trackId(bridgedPartIds, sessionID, echoId);
+				scratchOf(sessionID).bridgedPartIds.add(echoId);
 			}
+			const marks = sessionScratch.get(sessionID);
 			reconcileHydratedParts(msgs, newParts, {
 				isOptimistic: (id) => isOptimistic(sessionID, id),
-				isBridged: (id) => hasTrackedId(bridgedPartIds, sessionID, id),
-				clearBridge: (id) => untrackId(bridgedPartIds, sessionID, id),
-				isDeltaActive: (id) => hasTrackedId(deltaActiveParts, sessionID, id),
+				isBridged: (id) => marks?.bridgedPartIds.has(id) ?? false,
+				clearBridge: (id) => marks?.bridgedPartIds.delete(id),
+				isDeltaActive: (id) => marks?.deltaActiveParts.has(id) ?? false,
 			});
 			// A re-read of unchanged content keeps the store's objects, so the
 			// rows over them are reused and nothing redraws.
@@ -2429,16 +2382,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 	},
 
 	reset: () => {
-		optimisticIds.clear();
-		dispatchedOptimisticIds.clear();
-		inboxBackedOptimisticIds.clear();
-		optimisticEchoes.clear();
-		optimisticOrigins.clear();
-		bridgedPartIds.clear();
-		deltaActiveParts.clear();
-		deltaEventTails.clear();
-		deltaOffsets.clear();
-		stubAssistantIds.clear();
+		sessionScratch.clear();
 		// The data these holds protected is gone, so the holds are too —
 		// otherwise a late unmount could free a session the next page opened.
 		sessionConsumers.clear();
@@ -2510,7 +2454,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 				const info = (event.properties as { info: Message }).info;
 				if (!info?.sessionID) return;
 				// The user cancelled this message; the runtime's husk stays dead.
-				if (cancelledMessageIds.get(info.sessionID)?.has(info.id)) return;
+				if (sessionScratch.get(info.sessionID)?.cancelledMessageIds.has(info.id)) return;
 				// When a real user message arrives from the server, swap out the
 				// optimistic message(s) in a SINGLE atomic set() call.
 				// This prevents the intermediate render where the user bubble
@@ -2523,7 +2467,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 					// blinks empty and never shows both.
 					releaseOptimisticId(info.sessionID, info.id);
 					if (get().parts[info.id]?.length) {
-						trackId(bridgedPartIds, info.sessionID, info.id);
+						scratchOf(info.sessionID).bridgedPartIds.add(info.id);
 					}
 					store.upsertMessage(info.sessionID, info);
 					return;
@@ -2587,7 +2531,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 						// A pre-registered alias (`registerOptimisticEcho`) is an identity
 						// match: the row named this echo id before it arrived.
 						const byAlias = optimisticUsers.find(
-							(m) => optimisticEchoes.get(info.sessionID)?.get(m.id) === info.id,
+							(m) => sessionScratch.get(info.sessionID)?.optimisticEchoes.get(m.id) === info.id,
 						);
 						// The ordinal guess is only available when there is exactly ONE
 						// eligible send without an inbox row. With a burst in flight, a
@@ -2612,10 +2556,10 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 						const eligible = optimisticUsers.filter(
 							(m) =>
 								isDispatched(info.sessionID, m.id) &&
-								!hasTrackedId(inboxBackedOptimisticIds, info.sessionID, m.id) &&
+								!sessionScratch.get(info.sessionID)?.inboxBackedOptimisticIds.has(m.id) &&
 								// An optimistic message whose OWN echo is known to be a
 								// DIFFERENT id must not be consumed by someone else's.
-								!optimisticEchoes.get(info.sessionID)?.get(m.id),
+								!sessionScratch.get(info.sessionID)?.optimisticEchoes.get(m.id),
 						);
 						const matched =
 							byPartId ?? byAlias ?? (eligible.length === 1 ? eligible[0] : undefined);
@@ -2663,7 +2607,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 								}
 								if (bridge && !newParts[info.id]?.length) {
 									newParts[info.id] = bridge;
-									trackId(bridgedPartIds, info.sessionID, info.id);
+									scratchOf(info.sessionID).bridgedPartIds.add(info.id);
 								}
 								return {
 									messages: { ...s.messages, [info.sessionID]: next },
@@ -2851,7 +2795,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// tracking so future message.part.updated snapshots for it are
 			// accepted normally. Never the whole map: another session may
 			// still be streaming (see comment above deltaActiveParts).
-			if (sessionID) deltaActiveParts.delete(sessionID);
+			if (sessionID) sessionScratch.get(sessionID)?.deltaActiveParts.clear();
 			// Keep the bounded event-id tail after completion: reconnects can
 			// replay the final delta after idle. New turns use new part ids.
 			return;
@@ -2880,9 +2824,10 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			}
 			// Clear only this session's delta tracking — see the idle handler
 			// above and the comment above deltaActiveParts.
-			deltaActiveParts.delete(sid);
-			deltaEventTails.delete(sid);
-			deltaOffsets.delete(sid);
+			const deltaMarks = sessionScratch.get(sid);
+			deltaMarks?.deltaActiveParts.clear();
+			deltaMarks?.deltaEventTails.clear();
+			deltaMarks?.deltaOffsets.clear();
 
 			// Attach the error to the TURN THAT FAILED, which is the turn the
 			// last user message opened: `session.error` terminates the turn the

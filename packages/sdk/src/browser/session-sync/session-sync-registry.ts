@@ -5,7 +5,6 @@ import { ApiError } from '../../core/http/api/errors';
 import {
   SessionSyncController,
   type SessionSyncPage,
-  type SessionSyncReason,
   type SessionSyncTelemetryEvent,
   loadCompleteSessionHistory,
 } from '../../core/session-sync/session-sync-controller';
@@ -389,14 +388,6 @@ export function retainSessionSyncController(sessionId: string, runtimeScope?: st
     }
     evictInactiveControllers();
   };
-}
-
-export function reconcileSessionTail(
-  sessionId: string,
-  reason: SessionSyncReason,
-  runtimeScope?: string,
-): Promise<void> {
-  return getSessionSyncController(sessionId, undefined, runtimeScope).reconcile(reason);
 }
 
 /**

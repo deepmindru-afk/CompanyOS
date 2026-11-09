@@ -560,9 +560,6 @@ members. 1 credit = $0.01.
   inline and which it downloads. The smallest fill the 1 MiB inline budget;
   only the rest download. Before, a host could only download every text of a
   turn over 1 MiB in all.
-- `hasRuntimeConfirmedMessage(sessionID, messageID)`
-  (`@kortix/sdk/internal/sync-store`): the store holds the message from a
-  runtime read or a live event, not only from a saved copy.
 
 ### Fixed (session-log follow-ups)
 - `useSessionSync` stops offering the saved copy's older pages once the

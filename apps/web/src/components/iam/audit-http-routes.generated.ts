@@ -531,7 +531,6 @@ const AUDIT_HTTP_ROUTE_KEYS = [
   "POST|v1|p|auth",
   "GET|v1|p|config",
   "GET|v1|p|public-share|:token",
-  "ALL|v1|p|public-share|:token|:port",
   "ALL|v1|p|public-share|:token|:port|*",
   "ALL|v1|p|public-share|:token|file",
   "ALL|v1|p|public-share|:token|file|*",

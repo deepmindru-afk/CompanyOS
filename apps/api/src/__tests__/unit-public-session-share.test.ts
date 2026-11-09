@@ -160,6 +160,9 @@ describe('public session preview shares', () => {
     });
     expect(res.status).toBe(405);
     expect(await res.json()).toEqual({ error: 'This public share is view-only' });
+    // RFC 9110 §15.5.6: a 405 names the methods the resource supports
+    // (KRTX-3380, pentest http.contract: 405 without Allow is not actionable).
+    expect(res.headers.get('allow')).toBe('GET, HEAD, OPTIONS');
   });
 
   // KRTX-4406: `mode` is a free-form column, so this edge must ask the same
@@ -283,6 +286,7 @@ describe('public session preview shares', () => {
       body: '{}',
     });
     expect(res.status).toBe(405);
+    expect(res.headers.get('allow')).toBe('GET, HEAD, OPTIONS');
   });
 
 });

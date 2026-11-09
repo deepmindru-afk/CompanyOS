@@ -2,6 +2,7 @@ import { Context, Hono } from 'hono';
 import { normalizeForwardedHeader } from '../../lib/request-url';
 import {
   PUBLIC_SHARE_BLOCKED_PORTS,
+  PUBLIC_SHARE_VIEW_ALLOW,
   PUBLIC_SHARE_VIEW_METHODS,
   STATIC_FILE_SHARE_PORT,
   isViewOnlyShare,
@@ -160,8 +161,10 @@ async function forwardPublicShare(c: any, args: {
   // `mode === 'view'`: `mode` is a free-form column, so an exact-string
   // denylist would treat every value it has not heard of as writable while the
   // preview origin refuses it. The two edges must agree on the same share.
+  // KRTX-3380 (http.contract): the 405 carries `Allow` so a generic client
+  // can retry with a method the resource actually supports.
   if (isViewOnlyShare(args.share) && !PUBLIC_SHARE_VIEW_METHODS.has(method)) {
-    return c.json({ error: 'This public share is view-only' }, 405);
+    return c.json({ error: 'This public share is view-only' }, 405, { Allow: PUBLIC_SHARE_VIEW_ALLOW });
   }
 
   const origin = c.req.header('Origin') || '';
@@ -267,6 +270,10 @@ publicShareApp.all('/:token/file/*', async (c) => {
   });
 });
 
+// One edge, both forms: Hono's non-strict match serves `/…/<token>/<port>` and
+// `/…/<token>/<port>/` here. Port roots once had a `/:token/:port` redirect of
+// their own in front of it; the wildcard answered first, so it never ran
+// (KRTX-4518).
 publicShareApp.all('/:token/:port/*', async (c) => {
   const token = c.req.param('token');
   const port = Number(c.req.param('port'));
@@ -306,13 +313,6 @@ publicShareApp.all('/:token/:port/*', async (c) => {
     queryString: upstreamUrl.search,
     redirectPrefix: `/v1/p/public-share/${token}/${port}`,
   });
-});
-
-publicShareApp.all('/:token/:port', async (c) => {
-  const token = c.req.param('token');
-  const port = c.req.param('port');
-  const url = new URL(c.req.url);
-  return c.redirect(`/v1/p/public-share/${token}/${port}/${url.search}`, 301);
 });
 
 export { publicShareApp };

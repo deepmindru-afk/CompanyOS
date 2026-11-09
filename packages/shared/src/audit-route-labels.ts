@@ -459,7 +459,6 @@ export const AUDIT_ROUTE_LABELS: Readonly<Record<string, AuditRouteLabel | strin
   'POST /v1/p/auth': { action: 'sandbox.preview.authenticate', title: 'Authenticated to sandbox previews' },
   'GET /v1/p/config': { action: 'sandbox.preview.config.read', title: 'Viewed sandbox preview URL template' },
   'GET /v1/p/public-share/:token': { action: 'sandbox.public_share.read', title: 'Viewed public share link' },
-  'ALL /v1/p/public-share/:token/:port': 'ALL /v1/p/public-share/:token/:port/*',
   'ALL /v1/p/public-share/:token/:port/*': { action: 'sandbox.public_share.preview.proxy', title: 'Accessed shared sandbox preview' },
   'ALL /v1/p/public-share/:token/file': 'ALL /v1/p/public-share/:token/file/*',
   'ALL /v1/p/public-share/:token/file/*': { action: 'sandbox.public_share.file.read', title: 'Viewed shared session file' },

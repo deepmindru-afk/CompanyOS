@@ -9,7 +9,9 @@
  *    (`webhook-id` / `webhook-timestamp` / `webhook-signature`, secret `whsec_…`).
  *  - Platinum: events `sandbox.created` / `sandbox.state_updated` / `sandbox.deleted`,
  *    each HMAC-SHA-256 signed with the per-webhook secret shown once at
- *    registration (`POST /v1/webhooks`).
+ *    registration (`POST /v1/webhooks`). Its replay guard keys on a hash of the
+ *    signed body bytes only — never an unsigned header or the payload `id`,
+ *    which names the sandbox (see handlePlatinumWebhook).
  *
  * Signature header/format specifics for each provider are confirmed against a
  * live delivery at deploy time — see verify* below. Until the matching secret is
@@ -19,7 +21,7 @@
  * correctness dependency.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { config } from '../../config';
 import { recordWebhookEvent } from '../../billing/services/webhook-concurrency';
 import {
@@ -162,12 +164,27 @@ export async function handlePlatinumWebhook(
   const externalId: string | undefined = event?.id ?? event?.sandbox_id ?? event?.data?.id ?? event?.sandboxId;
   const eventType: string = event?.event ?? event?.type ?? '';
   const newState: string | undefined = event?.state ?? event?.new_state ?? event?.newState ?? event?.data?.state;
-  if (!externalId) return { status: 200, body: { ok: true, ignored: 'no sandbox id' } };
 
-  const dedupId = `platinum:${event?.id ?? `${externalId}:${eventType}:${event?.timestamp ?? ''}`}`;
+  // Key the replay guard on the SIGNED body bytes only, via a hash of them
+  // (CWE-345, KRTX-4502). Distinct deliveries carry distinct signed bodies
+  // (every Platinum delivery is stamped with its own `ts`), so they get distinct
+  // keys — a `removed` after a `stopped` is never folded into an earlier
+  // event's key, which is what the deleted `platinum:${externalId}:${eventType}:
+  // ${event.timestamp ?? ''}` fallback did (it read a `timestamp` field no
+  // Platinum delivery has), and what keying on the payload `id` would do (that
+  // field IS the sandbox id). It is also the only material the HMAC covers:
+  // keying on the unsigned `webhook-id` header instead would let a captured
+  // signed body be replayed with a fresh header value for a fresh key
+  // (CWE-294), while a byte-identical replay always hashes to the key already
+  // claimed — deduped. A delivery this handler cannot map to a sandbox still
+  // claimed its key and is acknowledged once: a body we do not understand is
+  // never re-applied as "already ran" (applySandboxLifecycle no-ops on a
+  // missing id).
+  const dedupId = `platinum:${createHash('sha256').update(rawBody, 'utf8').digest('hex')}`;
   const fresh = await recordWebhookEvent(dedupId, eventType || 'sandbox.event').catch(() => true);
   if (!fresh) return { status: 200, body: { ok: true, deduped: true } };
 
+  if (!externalId) return { status: 200, body: { ok: true, ignored: 'no sandbox id' } };
   const outcome = classifyLifecycle(newState, eventType);
   const res = await applySandboxLifecycle(externalId, outcome);
   return { status: 200, body: { ok: true, externalId, ...res } };

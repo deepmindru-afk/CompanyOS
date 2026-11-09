@@ -1,6 +1,6 @@
 {
   "generatedAt": "static",
-  "count": 1754,
+  "count": 1753,
   "aliases": 675,
   "routes": [
     {
@@ -2320,10 +2320,6 @@
     {
       "method": "GET",
       "path": "/v1/p/public-share/:token"
-    },
-    {
-      "method": "ALL",
-      "path": "/v1/p/public-share/:token/:port"
     },
     {
       "method": "ALL",
