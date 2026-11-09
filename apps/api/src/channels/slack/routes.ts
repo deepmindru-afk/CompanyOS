@@ -9,6 +9,7 @@ import { slackOauthMode } from '../slack-oauth-mode';
 import { json, errors } from '../../openapi';
 import { slackWebhookApp } from './app';
 import { alreadyHandled } from './dedup';
+import { EVENT_DEDUPE_TTL_MS } from './app';
 import { parseEnvelope, verifySlackSignature } from './util';
 import {
   dispatchSlackEvent,
@@ -225,26 +226,34 @@ async function processByoEventCallback(envelope: SlackEnvelope, inbound: Project
 const SLACK_REDELIVERY_WAIT_MS = 5 * 60_000;
 const SLACK_REDELIVERY_VISIBILITY_MS = 10 * 60_000;
 
-/** The durable-enqueue retry schedule (1 s, 5 s). Tests shrink the waits. */
-export const REDELIVERY_RETRY_DELAYS_MS = [0, 1_000, 5_000];
+/** The durable-enqueue retry schedule (~8.6 min of coverage — longer than the 500-retry window of the 2 s-budget code, which is the recovery this replaces). Tests shrink the waits. */
+export const REDELIVERY_RETRY_DELAYS_MS = [0, 1_000, 5_000, 30_000, 60_000, 120_000, 300_000];
 
 /**
  * A failure that lands after the ack went out loses the event: the provider got
  * its 2xx and will not redeliver, and releasing the dedup claim schedules
  * nothing. Enqueue the event on the durable job queue (retries with backoff,
  * dead-letters, runbook in integrations/event-inbox.ts) so the work replays.
- * The enqueue itself is retried: a DB blip must not be the thing that eats the
- * redelivery. When even the retries fail, the throw is the loss signal — the
- * same class of loss the 2 s-budget code had on a DB outage, minus Slack's
- * retries.
+ * The enqueue itself is retried over minutes: a DB blip or a short outage must
+ * not be the thing that eats the redelivery — the schedule covers more than the
+ * Slack-retry window the 500 path used to get. When even that fails, the throw
+ * is the loss signal. When the dedup claim's release failed, the redelivery
+ * waits out the claim's TTL (`runAt`) so the consumer can re-take it.
  */
-async function enqueueSlackEventRedelivery(envelope: SlackEnvelope, inbound?: SlackInbound): Promise<void> {
+export async function enqueueSlackEventRedelivery(
+  envelope: SlackEnvelope,
+  inbound: SlackInbound | undefined,
+  opts: { claimsReleased: boolean },
+): Promise<void> {
   if (!envelope.event_id) {
     logger.warn('[slack-webhook] event work failed after the ack; the event has no id, so it cannot be redelivered');
     return;
   }
   const projectId = inbound?.kind === 'project' ? inbound.projectId : undefined;
   const eventId = envelope.event_id;
+  const runAt = opts.claimsReleased
+    ? undefined
+    : new Date(Date.now() + EVENT_DEDUPE_TTL_MS + 60_000);
   const store = (): Promise<boolean> =>
     emitIntegrationEvent({
       id: eventId,
@@ -254,7 +263,7 @@ async function enqueueSlackEventRedelivery(envelope: SlackEnvelope, inbound?: Sl
       subject: null,
       projectId: projectId ?? '',
       data: { envelope, inbound: inbound ?? null },
-    });
+    }, { ...(runAt ? { runAt } : {}) });
   let inserted = false;
   let scheduled = false;
   for (const delay of REDELIVERY_RETRY_DELAYS_MS) {
@@ -343,7 +352,7 @@ export function registerSlackWebhookRoutes(): void {
       // retry a 2xx, and releasing the claim alone schedules nothing).
       const outcome = await runWebhookWork('slack-oauth-event', () => processOauthEventCallback(envelope), {
         ackWaitMs: EVENT_ACK_WAIT_MS,
-        onLost: () => enqueueSlackEventRedelivery(envelope),
+        onLost: ({ claimsReleased }) => enqueueSlackEventRedelivery(envelope, undefined, { claimsReleased }),
       });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
 
@@ -473,7 +482,7 @@ export function registerSlackWebhookRoutes(): void {
       // failure is enqueued for durable redelivery (see the canonical route).
       const outcome = await runWebhookWork('slack-byo-event', () => processByoEventCallback(envelope, inbound), {
         ackWaitMs: EVENT_ACK_WAIT_MS,
-        onLost: () => enqueueSlackEventRedelivery(envelope, inbound),
+        onLost: ({ claimsReleased }) => enqueueSlackEventRedelivery(envelope, inbound, { claimsReleased }),
       });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
       return c.json({ ok: true });

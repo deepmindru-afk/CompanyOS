@@ -90,7 +90,7 @@ export function registerEventConsumer(
  */
 export function emitIntegrationEvent(
   event: IntegrationEvent,
-  opts: { maxAttempts?: number } = {},
+  opts: { maxAttempts?: number; runAt?: Date } = {},
 ): Promise<boolean> {
   // A provider string with U+0000 (an email subject) would fail the store on
   // every retry, so the provider would retry it until it gives up.
@@ -100,6 +100,7 @@ export function emitIntegrationEvent(
     jsonbSafeValue(event) as unknown as Record<string, unknown>,
     {
       maxAttempts: opts.maxAttempts,
+      ...(opts.runAt ? { runAt: opts.runAt } : {}),
       ...(event.subject != null && event.sequence !== undefined
         ? { order: { key: `${event.source}:${event.subject}`, seq: event.sequence } }
         : {}),

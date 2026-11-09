@@ -68,12 +68,14 @@ export function recordClaim(eventId: string): void {
   claimScope.getStore()?.add(eventId);
 }
 
-async function releaseClaims(keys: ReadonlySet<string>): Promise<void> {
-  if (keys.size === 0) return;
+async function releaseClaims(keys: ReadonlySet<string>): Promise<boolean> {
+  if (keys.size === 0) return true;
   try {
     await db.delete(chatEventDedup).where(inArray(chatEventDedup.eventId, [...keys]));
+    return true;
   } catch (error) {
     logger.error('[webhook-work] claim release failed', { error: error instanceof Error ? error.message : String(error) });
+    return false;
   }
 }
 
@@ -95,12 +97,13 @@ function stageFields(): Record<string, number> {
 export async function runWebhookWork(
   label: string,
   work: () => Promise<void>,
-  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: () => Promise<void> | void; awaitSettlement?: boolean } = {},
+  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: (info: { claimsReleased: boolean }) => Promise<void> | void; awaitSettlement?: boolean } = {},
 ): Promise<WebhookOutcome> {
   const ackWaitMs = options.ackWaitMs ?? ACK_WAIT_MS;
   const startedAt = Date.now();
   const claims = new Set<string>();
   let outcome: WebhookOutcome = 'pending';
+  let claimsReleased = true;
   // Set inside the ack timer's callback, so a failure handler that runs after
   // the ack went out sees it with no race. Work that merely ran long while
   // blocking the loop still won the race, its duration is in the request log.
@@ -124,13 +127,17 @@ export async function runWebhookWork(
         workMs: Date.now() - startedAt,
         ...stageFields(),
       });
-      if (options.releaseOnFailure !== false) await releaseClaims(claims);
+      if (options.releaseOnFailure !== false) {
+        claimsReleased = await releaseClaims(claims);
+      }
       if (ackedAt && options.onLost) {
         // The ack already answered 2xx — the provider will not redeliver. Let
-        // the route schedule a redelivery; a failed schedule is loud, never fatal.
+        // the route schedule a redelivery; `claimsReleased` tells it whether a
+        // held dedup claim still needs to time out first. A failed schedule is
+        // loud, never fatal.
         trackDetached(
           Promise.resolve()
-            .then(options.onLost)
+            .then(() => options.onLost?.({ claimsReleased }))
             .catch((err) =>
               logger.error('[webhook-work] redelivery scheduling failed', {
                 label,

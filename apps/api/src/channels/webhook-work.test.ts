@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const deleted: number[] = [];
+/** Makes the next claim-release delete reject (a DB blip during the release). */
+let deleteFails = false;
 mock.module('../shared/db', () => ({
   db: {
     delete: () => ({
       where: () => {
+        if (deleteFails) return Promise.reject(new Error('db down'));
         deleted.push(1);
         return Promise.resolve();
       },
@@ -34,6 +37,7 @@ beforeEach(() => {
   deleted.length = 0;
   warnings.length = 0;
   errors.length = 0;
+  deleteFails = false;
   resetDrainForTests();
 });
 
@@ -224,6 +228,39 @@ describe('runWebhookWork', () => {
     );
     expect(outcome).toBe('failed'); // the caller sees the settled outcome, not 'pending'
     expect(lost).toHaveLength(1);
+  });
+
+  test('the redelivery scheduler learns whether the dedup claim released', async () => {
+    let fail!: () => void;
+    const lost: Array<{ claimsReleased: boolean }> = [];
+    const outcome = await runWebhookWork(
+      't',
+      async () => {
+        recordClaim('slack:event:release-ok');
+        await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
+      },
+      { ackWaitMs: 20, onLost: (info) => void lost.push({ ...info }) },
+    );
+    expect(outcome).toBe('pending');
+    fail();
+    await Bun.sleep(30);
+    expect(deleted.length).toBe(1);
+    expect(lost[0]?.claimsReleased).toBe(true);
+
+    let fail2!: () => void;
+    const outcome2 = await runWebhookWork(
+      't2',
+      async () => {
+        recordClaim('slack:event:release-failed');
+        await new Promise<void>((_, reject) => (fail2 = () => reject(new Error('late'))));
+      },
+      { ackWaitMs: 20, onLost: (info) => void lost.push({ ...info }) },
+    );
+    expect(outcome2).toBe('pending');
+    deleteFails = true;
+    fail2();
+    await Bun.sleep(30);
+    expect(lost[1]?.claimsReleased).toBe(false); // the held claim must time out before a replay can re-take it
   });
 
   test('a redelivery scheduler that itself fails is logged, never thrown', async () => {

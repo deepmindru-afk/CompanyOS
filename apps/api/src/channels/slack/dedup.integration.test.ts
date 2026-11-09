@@ -53,4 +53,19 @@ describe('the Slack event claim is scoped to the project that received it', () =
     expect(await alreadyHandled(EVENT_ID_CANONICAL)).toBe(true);
     expect(await alreadyHandled(EVENT_ID_CANONICAL, { projectId: PROJECT_A })).toBe(false);
   });
+
+  test('an expired claim frees the key: the delivery is processed, not suppressed', async () => {
+    await reset();
+
+    // A claim left behind by a failed release (or an old redelivery) holds the
+    // key only until its TTL: past it, the claim row is re-taken — refreshed,
+    // and reported as NOT handled — so a durable redelivery scheduled past the
+    // TTL can run the event, while a live claim still suppresses its replay.
+    await db.insert(chatEventDedup).values({
+      eventId: `slack:event:${EVENT_ID}`,
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    expect(await alreadyHandled(EVENT_ID)).toBe(false);
+    expect(await alreadyHandled(EVENT_ID)).toBe(true); // the re-taken claim is live again
+  });
 });

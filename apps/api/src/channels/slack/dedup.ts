@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import { chatEventDedup } from '@kortix/db';
 import { db } from '../../shared/db';
 import { EVENT_DEDUPE_TTL_MS } from './app';
@@ -23,10 +23,19 @@ export async function alreadyHandled(
   if (!eventId) return false;
   const key = scope ? `slack:event:${scope.projectId}:${eventId}` : `slack:event:${eventId}`;
   try {
+    const expiresAt = new Date(Date.now() + EVENT_DEDUPE_TTL_MS);
+    // An EXPIRED claim must not block a fresh delivery (a redelivery after the
+    // TTL, or a claim whose failed release was left behind): the conflict
+    // re-takes it — the row's TTL is refreshed and returned, so exactly-once
+    // still holds for a live claim while a stale one frees the key.
     const inserted = await db
       .insert(chatEventDedup)
-      .values({ eventId: key, expiresAt: new Date(Date.now() + EVENT_DEDUPE_TTL_MS) })
-      .onConflictDoNothing({ target: chatEventDedup.eventId })
+      .values({ eventId: key, expiresAt })
+      .onConflictDoUpdate({
+        target: chatEventDedup.eventId,
+        set: { expiresAt },
+        setWhere: lt(chatEventDedup.expiresAt, new Date()),
+      })
       .returning({ eventId: chatEventDedup.eventId });
     if (inserted.length > 0) recordClaim(key);
     return inserted.length === 0;

@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { createHmac } from 'node:crypto';
+import type { SlackInbound } from '../channels/slack/inbound';
 
 let loadSigningSecretCalls = 0;
 let projectSigningSecret: string | null = null;
@@ -63,16 +64,18 @@ mock.module('../channels/slack/dispatch', () => ({
 // The durable redelivery inbox: a post-ack failure must enqueue the event here
 // (the job queue retries it), a pre-ack failure must not (Slack retries a 5xx).
 const redeliveries: unknown[] = [];
+const redeliveryOpts: unknown[] = [];
 /** > 0 makes the next N enqueue attempts throw (a DB blip the retry must survive). */
 let enqueueFailures = 0;
 let slackRedeliveryConsumer: ((event: unknown) => Promise<void>) | null = null;
 mock.module('../integrations/event-inbox', () => ({
-  emitIntegrationEvent: async (event: unknown) => {
+  emitIntegrationEvent: async (event: unknown, opts: unknown) => {
     if (enqueueFailures > 0) {
       enqueueFailures--;
       throw new Error('enqueue down');
     }
     redeliveries.push(event);
+    redeliveryOpts.push(opts);
     return true;
   },
   registerEventConsumer: (_prefix: string, consumer: (event: unknown) => Promise<void>) => {
@@ -102,7 +105,7 @@ mock.module('../channels/slack/interactivity', () => ({
 }));
 
 (await import('../channels/slack/routes')).registerSlackWebhookRoutes();
-const { REDELIVERY_RETRY_DELAYS_MS } = await import('../channels/slack/routes');
+const { REDELIVERY_RETRY_DELAYS_MS, enqueueSlackEventRedelivery } = await import('../channels/slack/routes');
 const { slackWebhookApp } = await import('../channels/slack/app');
 
 afterAll(() => {
@@ -121,10 +124,11 @@ beforeEach(() => {
   dispatchFails = false;
   enqueueFailures = 0;
   redeliveries.length = 0;
+  redeliveryOpts.length = 0;
 });
 
 const BYO_PROJECT = '3f1c2b7e-0000-4000-8000-000000000001';
-const BYO_INBOUND = { kind: 'project', projectId: BYO_PROJECT, teamId: 'T1' };
+const BYO_INBOUND: SlackInbound = { kind: 'project', projectId: BYO_PROJECT, teamId: 'T1' };
 
 function signed(body: string, contentType: string): RequestInit {
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -287,6 +291,24 @@ describe('a per-project Slack app reaches only the workspace its install proved'
     }
     expect(redeliveries).toHaveLength(1); // the retry, not the failure, schedules the redelivery
     REDELIVERY_RETRY_DELAYS_MS.splice(0, REDELIVERY_RETRY_DELAYS_MS.length, 0, 1_000, 5_000);
+  });
+
+  test('a redelivery scheduled while the dedup claim still holds waits out the claim TTL', async () => {
+    projectSigningSecret = 'signing-secret';
+    REDELIVERY_RETRY_DELAYS_MS.splice(0, REDELIVERY_RETRY_DELAYS_MS.length, 0);
+    const envelope = { type: 'event_callback', event_id: 'EvHold', event: { type: 'app_mention' } };
+    await enqueueSlackEventRedelivery(envelope, BYO_INBOUND, { claimsReleased: false });
+    const held = redeliveryOpts[0] as { runAt?: Date };
+    // The claim's TTL (5 min) plus margin: before it, the consumer would find
+    // the stale claim held and skip the replay.
+    expect(held.runAt?.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
+
+    await enqueueSlackEventRedelivery({ ...envelope, event_id: 'EvFree' }, BYO_INBOUND, {
+      claimsReleased: true,
+    });
+    const freed = redeliveryOpts[1] as { runAt?: Date };
+    expect(freed.runAt).toBeUndefined(); // the claim released: the queue can run the replay at once
+    REDELIVERY_RETRY_DELAYS_MS.splice(0, REDELIVERY_RETRY_DELAYS_MS.length, 0, 1_000, 5_000, 30_000, 60_000, 120_000, 300_000);
   });
 
   test('a redelivery replays the stored event through the same dispatch', async () => {
