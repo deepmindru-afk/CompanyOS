@@ -6,6 +6,7 @@ import { getTransactionsSummary } from '../repositories/transactions';
 import { makeOpenApiApp, json, auth, errors } from '../../openapi';
 import { resolveBillingReadAccountId, resolveBillingWriteAccountId } from '../http-require-billing-write';
 import { CreditCodeError, redeemCreditCode } from '../services/credit-codes';
+import { OpaqueSchema } from './opaque-schema';
 
 export const creditsRouter = makeOpenApiApp<AppEnv>();
 
@@ -101,7 +102,7 @@ creditsRouter.openapi(
     ...auth,
     request: { query: z.object({ days: z.coerce.number().optional() }) },
     responses: {
-      200: json(z.record(z.string(), z.any()), 'Usage summary'),
+      200: json(OpaqueSchema, 'Usage summary'),
       ...errors(403),
     },
   }),

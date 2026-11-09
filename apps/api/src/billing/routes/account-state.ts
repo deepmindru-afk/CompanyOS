@@ -10,6 +10,7 @@ import { authorize } from '../../iam/authorize';
 import { actorOf } from '../../iam/actor';
 import { ACCOUNT_ACTIONS } from '../../iam/actions';
 import { makeOpenApiApp, json, auth } from '../../openapi';
+import { OpaqueSchema } from './opaque-schema';
 
 export const accountStateRouter = makeOpenApiApp<AppEnv>();
 
@@ -66,9 +67,6 @@ async function viewFor(c: Context<AppEnv>, accountId: string, state: AccountStat
   return { ...state, can_manage_billing: write };
 }
 
-// Opaque account-state payload (credits, tier, subscription, …). Permissive on
-// purpose — the real shape is large and varies by mode (live / minimal / local mock).
-const AccountStateSchema = z.record(z.string(), z.any());
 const AccountStateQuerySchema = z.object({
   account_id: z.string().optional(),
   workspace_id: z.string().optional().openapi({ description: 'The workspace to read (the canonical name of account_id; either id works).' }),
@@ -83,7 +81,9 @@ accountStateRouter.openapi(
     ...auth,
     request: { query: AccountStateQuerySchema },
     responses: {
-      200: json(AccountStateSchema, 'Account billing state'),
+      // Opaque account-state payload (credits, tier, subscription, …). Permissive on
+      // purpose — the real shape is large and varies by mode (live / minimal / local mock).
+      200: json(OpaqueSchema, 'Account billing state'),
     },
   }),
   async (c) => {
@@ -117,7 +117,7 @@ accountStateRouter.openapi(
     ...auth,
     request: { query: AccountStateQuerySchema },
     responses: {
-      200: json(AccountStateSchema, 'Minimal account billing state'),
+      200: json(OpaqueSchema, 'Minimal account billing state'),
     },
   }),
   async (c) => {

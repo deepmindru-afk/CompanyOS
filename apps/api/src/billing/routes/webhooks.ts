@@ -6,6 +6,7 @@ import { config } from '../../config';
 import { processStripeWebhook, processRevenueCatWebhook } from '../services/webhooks';
 import { makeOpenApiApp, json, errors } from '../../openapi';
 import { bindIntegrationPrincipal } from '../../shared/audit-scope';
+import { OpaqueSchema } from './opaque-schema';
 
 export const webhooksRouter = makeOpenApiApp();
 
@@ -29,7 +30,7 @@ webhooksRouter.openapi(
     tags: ['billing'],
     summary: 'Stripe webhook (signature-verified, public)',
     responses: {
-      200: json(z.record(z.string(), z.any()), 'Webhook processing result'),
+      200: json(OpaqueSchema, 'Webhook processing result'),
       ...errors(400, 500, 503),
     },
   }),
@@ -61,7 +62,7 @@ webhooksRouter.openapi(
     tags: ['billing'],
     summary: 'RevenueCat webhook (bearer-secret verified, public)',
     responses: {
-      200: json(z.record(z.string(), z.any()), 'Webhook processing result'),
+      200: json(OpaqueSchema, 'Webhook processing result'),
       ...errors(401, 500),
     },
   }),

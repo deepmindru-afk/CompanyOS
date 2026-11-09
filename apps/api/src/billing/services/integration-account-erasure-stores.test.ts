@@ -80,6 +80,17 @@ mock.module('../../platform/providers', () => ({
     },
   }),
 }));
+// KRTX-4566 characterization: the workspace-volume delete is recorded, never a
+// real provider call, so the volume phase can be pinned in isolation.
+const deletedVolumes: string[] = [];
+const realWorkspaceVolume = await import('../../platform/services/workspace-volume');
+mock.module('../../platform/services/workspace-volume', () => ({
+  ...realWorkspaceVolume,
+  deleteSessionWorkspaceVolume: async (sessionId: string) => {
+    deletedVolumes.push(sessionId);
+  },
+}));
+
 const realGitBackends = await import('../../projects/git-backends');
 mock.module('../../projects/git-backends', () => ({
   ...realGitBackends,
@@ -93,6 +104,7 @@ mock.module('../../projects/git-backends', () => ({
 
 const { db } = await import('../../shared/db');
 const { deleteAccountImmediately } = await import('./account-deletion');
+const { deleteAccountExternalStores } = await import('./account-erasure-stores');
 
 const seeded: string[] = [];
 
@@ -135,6 +147,7 @@ beforeEach(() => {
   intentAtRemove.clear();
   cancelledSubscriptions.length = 0;
   deletedRepos.length = 0;
+  deletedVolumes.length = 0;
   failBoxRemove = false;
   failRepoDelete = false;
 });
@@ -209,6 +222,43 @@ describe('account erasure empties the stores outside the database', () => {
     failRepoDelete = false;
     await deleteAccountImmediately(accountId, accountId);
     expect(await accountExists(accountId)).toBe(false);
+    expect(deletedRepos).toEqual([`repo-${managed}`]);
+  });
+});
+
+// One case per phase of deleteAccountExternalStores, called directly instead of
+// through the whole deletion flow (KRTX-4566: pinned before the split into
+// named phases; they must hold after it unchanged).
+describe('deleteAccountExternalStores phases', () => {
+  test('parked boxes: this step removes the stopped and archived boxes; the running one stays with the reclaim', async () => {
+    const { accountId, boxes } = await seed();
+
+    await deleteAccountExternalStores(accountId);
+
+    expect(removedBoxes.sort()).toEqual(
+      boxes.filter((b) => b.status !== 'active').map((b) => b.externalId).sort(),
+    );
+  });
+
+  test('workspace volumes: deletes the volume every session metadata records, by its session', async () => {
+    const { accountId, managed } = await seed();
+    const withVolume = `erasure-volume-${accountId}`;
+    await db.execute(sql`
+      INSERT INTO kortix.project_sessions (session_id, account_id, project_id, branch_name, status, metadata)
+      VALUES (${withVolume}, ${accountId}::uuid, ${managed}::uuid, 'br-volume', 'running',
+              ${JSON.stringify({ workspace_volume: { name: `kws-${withVolume}`, location: null } })}::jsonb)`);
+
+    await deleteAccountExternalStores(accountId);
+
+    expect(deletedVolumes).toEqual([withVolume]);
+  });
+
+  test('project stores: every project loses its session files, only the managed repo is deleted', async () => {
+    const { accountId, managed, connected } = await seed();
+
+    await deleteAccountExternalStores(accountId);
+
+    expect([...bucket].filter((key) => key.startsWith(managed) || key.startsWith(connected))).toEqual([]);
     expect(deletedRepos).toEqual([`repo-${managed}`]);
   });
 });

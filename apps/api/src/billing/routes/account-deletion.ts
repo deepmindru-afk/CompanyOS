@@ -35,13 +35,12 @@ import {
   type PersonDeletionPlan,
 } from '../../workspaces/surface';
 import { cancelAccountDeletion, getAccountDeletionStatus } from '../services/account-deletion';
+import { OpaqueSchema } from './opaque-schema';
 
 export const accountDeletionRouter = makeOpenApiApp<AppEnv>();
 
 const GRACE_PERIOD_DAYS = 14;
 
-// Opaque service results (status / success payloads) — permissive on purpose.
-const ResultSchema = z.record(z.string(), z.any());
 
 const PlanSchema = z.object({
   delete_workspaces: z.array(z.string()).openapi({ description: 'Workspaces deleted with you: you are their only owner and only member.' }),
@@ -118,7 +117,7 @@ accountDeletionRouter.openapi(
     tags: ['billing'],
     summary: 'Get the current account-deletion status',
     ...auth,
-    responses: { 200: json(ResultSchema, 'Account deletion status') },
+    responses: { 200: json(OpaqueSchema, 'Account deletion status') },
   }),
   async (c: Context<AppEnv>) => {
     const userId = c.get('userId') as string;
@@ -153,9 +152,9 @@ accountDeletionRouter.openapi(
       },
     },
     responses: {
-      200: json(ResultSchema, 'Deletion request result'),
-      403: json(ResultSchema, 'Not a person acting for themselves'),
-      409: json(ResultSchema, 'Sole owner of a shared workspace'),
+      200: json(OpaqueSchema, 'Deletion request result'),
+      403: json(OpaqueSchema, 'Not a person acting for themselves'),
+      409: json(OpaqueSchema, 'Sole owner of a shared workspace'),
     },
   }),
   async (c: Context<AppEnv>) => {
@@ -193,7 +192,7 @@ accountDeletionRouter.openapi(
     tags: ['billing'],
     summary: 'Cancel a pending account deletion',
     ...auth,
-    responses: { 200: json(ResultSchema, 'Cancellation result') },
+    responses: { 200: json(OpaqueSchema, 'Cancellation result') },
   }),
   async (c: Context<AppEnv>) => {
     const userId = c.get('userId') as string;
@@ -215,9 +214,9 @@ accountDeletionRouter.openapi(
       'Deletes the workspaces you own alone, removes you from the others, and deletes your login, in that order. 409 `sole_owner_of_shared_workspace` (with the list) while you are the only owner of a workspace other people use; nothing is deleted then.',
     ...auth,
     responses: {
-      200: json(ResultSchema, 'Immediate deletion result'),
-      403: json(ResultSchema, 'Not a person acting for themselves'),
-      409: json(ResultSchema, 'Sole owner of a shared workspace'),
+      200: json(OpaqueSchema, 'Immediate deletion result'),
+      403: json(OpaqueSchema, 'Not a person acting for themselves'),
+      409: json(OpaqueSchema, 'Sole owner of a shared workspace'),
     },
   }),
   async (c: Context<AppEnv>) => {

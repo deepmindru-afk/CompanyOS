@@ -155,43 +155,59 @@ export async function applySplitOffBilling(
   ]);
   const comp = compPlanFor(source, paying, now);
 
-  if (!comp) {
-    const freeUsd = getTier('free').monthlyCredits;
-    const expiresAt = target?.nextCreditGrant ?? calculateNextCreditGrant(now).toISOString();
-    await db
-      .insert(creditAccounts)
-      .values({
-        accountId: newAccountId,
-        tier: 'free',
-        billingCycleAnchor: now.toISOString(),
-        nextCreditGrant: expiresAt,
-        freeCreditsEligible: true,
-      })
-      .onConflictDoUpdate({
-        target: creditAccounts.accountId,
-        set: { freeCreditsEligible: true, nextCreditGrant: expiresAt, updatedAt: now.toISOString() },
-      });
-    const granted = await wallet.grant({
-      accountId: newAccountId,
-      amount: freeUsd,
-      kind: 'free_tier_grant',
-      description: 'Free credits for a workspace split off a free account',
-      expiring: true,
-      expiresAt,
-      key: { event: `split_off_grant:${runId}` },
-    });
-    invalidateAccountBilling(newAccountId);
-    if (!granted.replayed) {
-      await recordSplitOffAudit(newAccountId, 'billing.split_off.free', {
-        run_id: runId,
-        source_account_id: sourceAccountId,
-        free_credits_eligible: true,
-        granted_credits: toCredits(freeUsd),
-      });
-    }
-    return { kind: 'free', grantedCredits: toCredits(freeUsd) };
-  }
+  if (!comp) return applyFreeSplitOff(input, target, now);
+  return applyCompSplitOff(input, target, comp, now);
+}
 
+async function applyFreeSplitOff(
+  input: { runId: string; sourceAccountId: string; newAccountId: string },
+  target: CreditRow | null,
+  now: Date,
+): Promise<SplitOffBilling> {
+  const { runId, sourceAccountId, newAccountId } = input;
+  const freeUsd = getTier('free').monthlyCredits;
+  const expiresAt = target?.nextCreditGrant ?? calculateNextCreditGrant(now).toISOString();
+  await db
+    .insert(creditAccounts)
+    .values({
+      accountId: newAccountId,
+      tier: 'free',
+      billingCycleAnchor: now.toISOString(),
+      nextCreditGrant: expiresAt,
+      freeCreditsEligible: true,
+    })
+    .onConflictDoUpdate({
+      target: creditAccounts.accountId,
+      set: { freeCreditsEligible: true, nextCreditGrant: expiresAt, updatedAt: now.toISOString() },
+    });
+  const granted = await wallet.grant({
+    accountId: newAccountId,
+    amount: freeUsd,
+    kind: 'free_tier_grant',
+    description: 'Free credits for a workspace split off a free account',
+    expiring: true,
+    expiresAt,
+    key: { event: `split_off_grant:${runId}` },
+  });
+  invalidateAccountBilling(newAccountId);
+  if (!granted.replayed) {
+    await recordSplitOffAudit(newAccountId, 'billing.split_off.free', {
+      run_id: runId,
+      source_account_id: sourceAccountId,
+      free_credits_eligible: true,
+      granted_credits: toCredits(freeUsd),
+    });
+  }
+  return { kind: 'free', grantedCredits: toCredits(freeUsd) };
+}
+
+async function applyCompSplitOff(
+  input: { runId: string; sourceAccountId: string; newAccountId: string },
+  target: CreditRow | null,
+  comp: CompPlan,
+  now: Date,
+): Promise<SplitOffBilling> {
+  const { runId, sourceAccountId, newAccountId } = input;
   // A replay keeps the window of the first call.
   const storedUntil = target?.compPlanUntil ? new Date(target.compPlanUntil) : null;
   const compedUntil = storedUntil && storedUntil > now ? storedUntil : comp.compedUntil;

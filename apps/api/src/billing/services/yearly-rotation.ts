@@ -1,11 +1,8 @@
-import {
-  getYearlyAccountsDueForRotation,
-  updateCreditAccount,
-} from '../repositories/credit-accounts';
+import { getYearlyAccountsDueForRotation, updateCreditAccount } from '../repositories/credit-accounts';
 import { canonicalTier, getTier, planMonthlyUsd } from './tiers';
+import { rotateDueAccounts } from './rotation-batch';
 import { wallet } from '../wallet';
 import { calculateNextCreditGrant } from './credit-grant-schedule';
-import { ROTATION_BATCH_SIZE } from './rotation-batch';
 
 // STORED TIER ON PURPOSE — do not route this file through the effective-plan
 // resolver (billing/services/resolve-billing.ts).
@@ -23,54 +20,31 @@ export async function processYearlyCreditRotation(): Promise<{
   skipped: number;
   errors: string[];
 }> {
-  let processed = 0;
-  let skipped = 0;
-  const errors: string[] = [];
+  return rotateDueAccounts({
+    select: getYearlyAccountsDueForRotation,
+    keyPrefix: 'yearly_rotation',
+    logPrefix: 'YearlyRotation',
+    errorLabel: 'yearly',
+    grant: async (account, now, key) => {
+      // A paid plan carries its monthly amount on the row; anything else
+      // grants its fixed allowance.
+      const plan = canonicalTier(account.tier);
+      const credits = plan === 'credits' ? planMonthlyUsd(account) : getTier(account.tier ?? 'free').monthlyCredits;
 
-  let after: string | undefined;
-  for (;;) {
-    const accounts = await getYearlyAccountsDueForRotation(after);
-    await rotateBatch(accounts);
-    if (accounts.length < ROTATION_BATCH_SIZE) break;
-    after = accounts[accounts.length - 1]!.accountId;
-  }
-
-  async function rotateBatch(accounts: Awaited<ReturnType<typeof getYearlyAccountsDueForRotation>>) {
-    for (const account of accounts) {
-      try {
-        // A paid plan carries its monthly amount on the row; anything else
-        // grants its fixed allowance.
-        const plan = canonicalTier(account.tier);
-        const credits = plan === 'credits' ? planMonthlyUsd(account) : getTier(account.tier ?? 'free').monthlyCredits;
-        const now = new Date();
-        // UTC, like the free-tier key: a replica in another time zone must not mint a second key at a month edge.
-        const yearMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-        const idempotencyKey = `yearly_rotation_${account.accountId}_${yearMonth}`;
-
-        if (credits > 0) {
-          await wallet.reset({
-            accountId: account.accountId,
-            amount: credits,
-            description: `Yearly plan monthly credits: ${Math.round(credits * 100)} credits`,
-            key: { event: idempotencyKey },
-          });
-        }
-
-        const nextGrant = calculateNextCreditGrant(now);
-        await updateCreditAccount(account.accountId, {
-          nextCreditGrant: nextGrant.toISOString(),
-          lastGrantDate: now.toISOString(),
+      if (credits > 0) {
+        await wallet.reset({
+          accountId: account.accountId,
+          amount: credits,
+          description: `Yearly plan monthly credits: ${Math.round(credits * 100)} credits`,
+          key: { event: key },
         });
-
-        processed++;
-      } catch (err) {
-        const msg = `Error processing yearly rotation for ${account.accountId}: ${(err as Error).message}`;
-        console.error(`[YearlyRotation] ${msg}`);
-        errors.push(msg);
       }
-    }
-  }
 
-  console.log(`[YearlyRotation] Processed: ${processed}, Skipped: ${skipped}, Errors: ${errors.length}`);
-  return { processed, skipped, errors };
+      const nextGrant = calculateNextCreditGrant(now);
+      await updateCreditAccount(account.accountId, {
+        nextCreditGrant: nextGrant.toISOString(),
+        lastGrantDate: now.toISOString(),
+      });
+    },
+  });
 }

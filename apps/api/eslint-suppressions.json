@@ -323,11 +323,6 @@
       "count": 7
     }
   },
-  "src/billing/services/free-tier-rotation.ts": {
-    "no-console": {
-      "count": 2
-    }
-  },
   "src/billing/services/legacy-stripe-sync.ts": {
     "no-console": {
       "count": 1
@@ -341,6 +336,11 @@
   "src/billing/services/revenuecat-webhooks.ts": {
     "no-console": {
       "count": 15
+    }
+  },
+  "src/billing/services/rotation-batch.ts": {
+    "no-console": {
+      "count": 2
     }
   },
   "src/billing/services/stripe-checkout-webhooks.ts": {
@@ -361,11 +361,6 @@
   "src/billing/services/webhooks.ts": {
     "no-console": {
       "count": 24
-    }
-  },
-  "src/billing/services/yearly-rotation.ts": {
-    "no-console": {
-      "count": 2
     }
   },
   "src/billing/wallet/index.ts": {

@@ -23,6 +23,12 @@ const REMOVE_CONCURRENCY = 8;
 /** Sandbox states the reclaim pass leaves alone: parked, but still on the provider's disk. */
 const PARKED_SANDBOX_STATUSES = ['stopped', 'archived'] as const;
 
+async function mapInBatches<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += limit) {
+    await Promise.all(items.slice(i, i + limit).map(fn));
+  }
+}
+
 /**
  * The account's data outside our database that the row delete cannot reach
  * (KRTX-1734). A parked box keeps its disk at the provider (the reclaim pass
@@ -38,6 +44,13 @@ export async function deleteAccountExternalStores(
   /** Boxes the reclaim pass of this run already removed. */
   alreadyRemoved: ReadonlySet<string> = new Set(),
 ): Promise<void> {
+  await removeParkedBoxes(accountId, alreadyRemoved);
+  // Session /workspace volumes, after the boxes that mount them.
+  await removeWorkspaceVolumes(accountId);
+  await removeProjectStores(accountId);
+}
+
+async function removeParkedBoxes(accountId: string, alreadyRemoved: ReadonlySet<string>): Promise<void> {
   const parked = await db
     .select({
       sandboxId: sessionSandboxes.sandboxId,
@@ -56,65 +69,56 @@ export async function deleteAccountExternalStores(
   // can fail on the provider's own transition.
   const targets = parked.filter((row) => !alreadyRemoved.has(row.externalId as string));
   let failed = 0;
-  for (let i = 0; i < targets.length; i += REMOVE_CONCURRENCY) {
-    await Promise.all(
-      targets.slice(i, i + REMOVE_CONCURRENCY).map(async (row) => {
-        const provider = tryGetProvider(row.provider as string);
-        if (!provider) {
-          // Nothing on this deployment can remove it; retrying would block the
-          // deletion for ever.
-          logger.error(
-            `[AccountDeletion] No provider client for ${row.provider}; parked sandbox ${row.sandboxId} stays at the provider`,
-          );
-          return;
-        }
-        // Stamp the intent BEFORE the provider call: its `removed` webhook can
-        // land while this step is still running (the reported occurrence: 931 ms
-        // after the reclaim summary, whose select never sees a parked row) and
-        // must not read as a lost runtime. A parked box is inert — it cannot run
-        // or bill — so a stamp failure skips this box's removal and the retry
-        // stamps it again; the deletion stays retryable.
-        try {
-          await markKortixRemovalIntent(row.sandboxId);
-        } catch (err) {
-          failed++;
-          logger.error(`[AccountDeletion] Failed to stamp removal intent for parked sandbox ${row.sandboxId}:`, {
-            error: err instanceof Error ? err.message : err,
-          });
-          return;
-        }
-        try {
-          await provider.remove(row.externalId as string);
-        } catch (err) {
-          if (isAlreadyNotRunning(err)) return;
-          failed++;
-          logger.error(`[AccountDeletion] Failed to remove parked sandbox ${row.sandboxId}:`, {
-            error: err instanceof Error ? err.message : err,
-          });
-        }
-      }),
-    );
-  }
+  await mapInBatches(targets, REMOVE_CONCURRENCY, async (row) => {
+    const provider = tryGetProvider(row.provider as string);
+    if (!provider) {
+      // Nothing on this deployment can remove it; retrying would block the
+      // deletion for ever.
+      logger.error(
+        `[AccountDeletion] No provider client for ${row.provider}; parked sandbox ${row.sandboxId} stays at the provider`,
+      );
+      return;
+    }
+    // Stamp the intent BEFORE the provider call: its `removed` webhook can
+    // land while this step is still running (the reported occurrence: 931 ms
+    // after the reclaim summary, whose select never sees a parked row) and
+    // must not read as a lost runtime. A parked box is inert — it cannot run
+    // or bill — so a stamp failure skips this box's removal and the retry
+    // stamps it again; the deletion stays retryable.
+    try {
+      await markKortixRemovalIntent(row.sandboxId);
+    } catch (err) {
+      failed++;
+      logger.error(`[AccountDeletion] Failed to stamp removal intent for parked sandbox ${row.sandboxId}:`, {
+        error: err instanceof Error ? err.message : err,
+      });
+      return;
+    }
+    try {
+      await provider.remove(row.externalId as string);
+    } catch (err) {
+      if (isAlreadyNotRunning(err)) return;
+      failed++;
+      logger.error(`[AccountDeletion] Failed to remove parked sandbox ${row.sandboxId}:`, {
+        error: err instanceof Error ? err.message : err,
+      });
+    }
+  });
   if (failed > 0) throw new Error(`${failed} parked sandbox(es) of account ${accountId} could not be removed`);
+}
 
-  // Session /workspace volumes, after the boxes that mount them.
+async function removeWorkspaceVolumes(accountId: string): Promise<void> {
   const volumeSessions = await db
     .select({ sessionId: projectSessions.sessionId, metadata: projectSessions.metadata })
     .from(projectSessions)
     .where(and(eq(projectSessions.accountId, accountId), sql`${projectSessions.metadata} ? ${WORKSPACE_VOLUME_SESSION_KEY}::text`));
-  for (let i = 0; i < volumeSessions.length; i += REMOVE_CONCURRENCY) {
-    await Promise.all(
-      volumeSessions.slice(i, i + REMOVE_CONCURRENCY).map((s) => deleteSessionWorkspaceVolume(s.sessionId, s.metadata)),
-    );
-  }
+  await mapInBatches(volumeSessions, REMOVE_CONCURRENCY, (s) => deleteSessionWorkspaceVolume(s.sessionId, s.metadata));
+}
 
+async function removeProjectStores(accountId: string): Promise<void> {
   const accountProjects = await db.select().from(projectsView).where(eq(projectsView.accountId, accountId));
-  for (let i = 0; i < accountProjects.length; i += REMOVE_CONCURRENCY) {
-    await Promise.all(
-      accountProjects.slice(i, i + REMOVE_CONCURRENCY).map(async (project) => {
-        await sessionAttachmentStore().removeProject(project.projectId);
-        await deleteManagedProjectRepo(project);
-      }),
-    );
-  }
+  await mapInBatches(accountProjects, REMOVE_CONCURRENCY, async (project) => {
+    await sessionAttachmentStore().removeProject(project.projectId);
+    await deleteManagedProjectRepo(project);
+  });
 }

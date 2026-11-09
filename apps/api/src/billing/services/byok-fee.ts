@@ -75,8 +75,3 @@ export function noteByokUsage(accountId: string, provider: string | null | undef
   const hit = monthToDate.get(accountId);
   if (hit) hit.usd += upstreamCostUsd;
 }
-
-/** Test seam: forget every cached sum. */
-export function clearByokMonthToDateCache(): void {
-  monthToDate.clear();
-}

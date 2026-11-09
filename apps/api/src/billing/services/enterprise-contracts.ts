@@ -241,6 +241,10 @@ export async function createContract(input: CreateContractInput): Promise<Contra
   }
 
   // invoice
+  return createInvoiceContract(offer, input);
+}
+
+async function createInvoiceContract(offer: ContractRow, input: CreateContractInput): Promise<ContractRow> {
   let createdSubscriptionId: string | null = null;
   try {
     const customer = await getOrCreateStripeCustomer(input.accountId, await billingEmailFor(input.accountId));

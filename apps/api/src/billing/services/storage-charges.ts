@@ -946,6 +946,24 @@ export async function resolveOwners(
   const owners = new Map<string, StorageOwner>();
   if (!resources.length) return owners;
 
+  await resolveFromEarlierRows(feed, resources, owners);
+  const pending = resources.filter((r) => !owners.has(rowKey(r)));
+
+  // Legacy volume snapshots, and Kortix's own Workers' storage: Kortix's cost.
+  for (const r of pending.filter((r) => r.resource_kind === 'volume_snapshot' || r.resource_kind === 'worker_storage')) {
+    owners.set(rowKey(r), UNATTRIBUTED('unsupported_kind', known.get(r.resource_id) ?? null));
+  }
+
+  await resolveScratchOwners(pending, owners);
+  await resolveVolumeOwners(feed, deps, lookups, known, pending, owners);
+  return owners;
+}
+
+async function resolveFromEarlierRows(
+  feed: StorageFeed,
+  resources: PlatinumVolumeUsageResource[],
+  owners: Map<string, StorageOwner>,
+): Promise<void> {
   // 1. An earlier day's row: one lookup per volume for its whole life.
   const earlier = await db.execute(sql`
     SELECT DISTINCT ON (resource_kind, resource_id)
@@ -964,13 +982,9 @@ export async function resolveOwners(
       unattributedReason: r.account_id ? null : ((r.unattributed_reason as UnattributedReason | null) ?? 'owner_gone'),
     });
   }
-  const pending = resources.filter((r) => !owners.has(rowKey(r)));
+}
 
-  // Legacy volume snapshots, and Kortix's own Workers' storage: Kortix's cost.
-  for (const r of pending.filter((r) => r.resource_kind === 'volume_snapshot' || r.resource_kind === 'worker_storage')) {
-    owners.set(rowKey(r), UNATTRIBUTED('unsupported_kind', known.get(r.resource_id) ?? null));
-  }
-
+async function resolveScratchOwners(pending: PlatinumVolumeUsageResource[], owners: Map<string, StorageOwner>): Promise<void> {
   // 2. Scratch disks: the resource id is the box's Platinum id.
   const scratch = pending.filter((r) => r.resource_kind === 'scratch');
   if (scratch.length) {
@@ -989,10 +1003,19 @@ export async function resolveOwners(
       );
     }
   }
+}
 
+async function resolveVolumeOwners(
+  feed: StorageFeed,
+  deps: Pick<StorageChargeDeps, 'volumeName'>,
+  lookups: { left: number },
+  known: ReadonlyMap<string, string | null>,
+  pending: PlatinumVolumeUsageResource[],
+  owners: Map<string, StorageOwner>,
+): Promise<void> {
   // 3. Volumes: a drive that recorded the volume id, else Platinum's name.
   const volumes = pending.filter((r) => r.resource_kind === 'volume');
-  if (!volumes.length) return owners;
+  if (!volumes.length) return;
   const byVolumeId = await db
     .select({ driveId: drives.driveId, accountId: drives.accountId, projectId: drives.projectId, volumeId: drives.platinumVolumeId, name: drives.platinumVolumeName })
     .from(drives)
@@ -1014,7 +1037,7 @@ export async function resolveOwners(
     if (!name) owners.set(rowKey(r), UNATTRIBUTED('volume_gone'));
     else named.push({ resource: r, name });
   }
-  if (!named.length) return owners;
+  if (!named.length) return;
 
   const driveNames = named.filter((n) => classifyVolumeName(n.name).kind === 'drive').map((n) => n.name);
   const driveRows = driveNames.length
@@ -1059,5 +1082,4 @@ export async function resolveOwners(
       owners.set(rowKey(resource), UNATTRIBUTED('not_kortix', name));
     }
   }
-  return owners;
 }

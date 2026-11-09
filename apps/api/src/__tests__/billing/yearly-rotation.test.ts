@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, jest } from 'bun:test';
 import {
   createMockCreditAccount,
   mockRegistry,
@@ -193,5 +193,37 @@ describe('processYearlyCreditRotation', () => {
     expect(result.processed).toBe(1);
     expect(walletResets).toEqual([]);
     expect(updateCreditAccountCalls.map((call) => call.accountId)).toEqual(['acc_zero']);
+  });
+
+  // KRTX-4566: the key's month is the UTC month, not the process's local zone.
+  // Pinned on both sides of a UTC month edge under a controlled clock: a
+  // local-time key mints a second grant at the edge on any replica whose zone
+  // is behind or ahead of UTC.
+  test('the idempotency key carries the UTC month at both sides of a month edge', async () => {
+    yearlyAccountsDueResult = [
+      createMockCreditAccount({
+        accountId: 'acc_edge',
+        tier: 'credits',
+        planMonthlyUsd: '50',
+        planType: 'yearly',
+        nextCreditGrant: new Date(Date.now() - 86400000).toISOString(),
+        stripeSubscriptionStatus: 'active',
+        paymentStatus: 'active',
+      }),
+    ];
+
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(new Date('2027-01-01T00:30:00Z'));
+      await processYearlyCreditRotation();
+      expect(walletResets[0]!.key.event).toBe('yearly_rotation_acc_edge_2027-01');
+
+      walletResets.length = 0;
+      jest.setSystemTime(new Date('2026-12-31T23:30:00Z'));
+      await processYearlyCreditRotation();
+      expect(walletResets[0]!.key.event).toBe('yearly_rotation_acc_edge_2026-12');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
