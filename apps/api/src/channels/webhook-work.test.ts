@@ -180,4 +180,52 @@ describe('runWebhookWork', () => {
     expect(outcome).toBe('done');
     expect(warnings).toHaveLength(0);
   });
+
+  test('a failure after the ack schedules the redelivery; a fast failure does not', async () => {
+    let fail!: () => void;
+    const lost: number[] = [];
+    const outcome = await runWebhookWork(
+      't',
+      async () => {
+        await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
+      },
+      { ackWaitMs: 20, onLost: () => void lost.push(1) },
+    );
+    expect(outcome).toBe('pending'); // the ack went out; the provider will not retry
+    fail();
+    await Bun.sleep(30);
+    expect(lost).toHaveLength(1);
+
+    const fastLost: number[] = [];
+    const fast = await runWebhookWork(
+      't2',
+      async () => {
+        throw new Error('fast');
+      },
+      { ackWaitMs: 500, onLost: () => void fastLost.push(1) },
+    );
+    expect(fast).toBe('failed'); // answered 500: Slack's retry is the redelivery
+    expect(fastLost).toHaveLength(0);
+  });
+
+  test('a redelivery scheduler that itself fails is logged, never thrown', async () => {
+    let fail!: () => void;
+    const outcome = await runWebhookWork(
+      't',
+      async () => {
+        await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
+      },
+      {
+        ackWaitMs: 20,
+        onLost: () => {
+          throw new Error('enqueue down');
+        },
+      },
+    );
+    expect(outcome).toBe('pending');
+    fail();
+    await Bun.sleep(30);
+    const logged = errors.find((e) => e.message.includes('redelivery scheduling failed'));
+    expect(logged).toBeDefined();
+  });
 });

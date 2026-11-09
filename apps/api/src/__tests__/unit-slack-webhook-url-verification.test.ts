@@ -46,6 +46,8 @@ const handledInbound: unknown[] = [];
 const dispatchedEvents: unknown[] = [];
 /** > 0 simulates the dispatch work still running when the test asserts the ack. */
 let slowDispatchMs = 0;
+/** Makes the dispatch work throw (after `slowDispatchMs` when that is set). */
+let dispatchFails = false;
 const slashCalls: unknown[] = [];
 const realDispatch = await import('../channels/slack/dispatch');
 mock.module('../channels/slack/dispatch', () => ({
@@ -53,9 +55,23 @@ mock.module('../channels/slack/dispatch', () => ({
   maybeHandleDmCommand: async () => false,
   dispatchSlackEvent: async (projectId: string, envelope: unknown, opts: unknown) => {
     if (slowDispatchMs > 0) await new Promise((r) => setTimeout(r, slowDispatchMs));
+    if (dispatchFails) throw new Error('dispatch failed');
     dispatchedEvents.push({ projectId, envelope, opts });
   },
   ensureProjectChannelBinding: async () => {},
+}));
+// The durable redelivery inbox: a post-ack failure must enqueue the event here
+// (the job queue retries it), a pre-ack failure must not (Slack retries a 5xx).
+const redeliveries: unknown[] = [];
+let slackRedeliveryConsumer: ((event: unknown) => Promise<void>) | null = null;
+mock.module('../integrations/event-inbox', () => ({
+  emitIntegrationEvent: async (event: unknown) => {
+    redeliveries.push(event);
+    return true;
+  },
+  registerEventConsumer: (_prefix: string, consumer: (event: unknown) => Promise<void>) => {
+    slackRedeliveryConsumer = consumer;
+  },
 }));
 const realCommands = await import('../channels/slack/commands');
 mock.module('../channels/slack/commands', () => ({
@@ -95,7 +111,12 @@ beforeEach(() => {
   slashCalls.length = 0;
   provenTeams = ['T1'];
   slowDispatchMs = 0;
+  dispatchFails = false;
+  redeliveries.length = 0;
 });
+
+const BYO_PROJECT = '3f1c2b7e-0000-4000-8000-000000000001';
+const BYO_INBOUND = { kind: 'project', projectId: BYO_PROJECT, teamId: 'T1' };
 
 function signed(body: string, contentType: string): RequestInit {
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -192,6 +213,97 @@ describe('a per-project Slack app reaches only the workspace its install proved'
     // request answered at the 900 ms work (and ≥2 s when the work is slower).
     expect(elapsed).toBeGreaterThanOrEqual(200);
     expect(elapsed).toBeLessThan(500);
+  });
+
+  test('a dispatch that fails after the ack is queued for durable redelivery', async () => {
+    projectSigningSecret = 'signing-secret';
+    slowDispatchMs = 900; // the failure lands after the 250 ms ack went out
+    dispatchFails = true;
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event_id: 'EvFail',
+      team_id: 'T1',
+      event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+    });
+    const res = await slackWebhookApp.request(`/${BYO_PROJECT}`, signed(body, 'application/json'));
+    expect(res.status).toBe(200); // the ack does not wait for the failure
+    // The detached work fails at ~900 ms; poll for its durable redelivery.
+    for (let i = 0; i < 40 && redeliveries.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    expect(redeliveries).toHaveLength(1);
+    const event = redeliveries[0] as {
+      id: string;
+      type: string;
+      source: string;
+      data: { envelope: { event_id: string }; inbound: unknown };
+    };
+    expect(event.id).toBe('EvFail');
+    expect(event.type).toBe('slack.event.redelivery');
+    expect(event.source).toBe(`slack:${BYO_PROJECT}`);
+    expect(event.data.envelope.event_id).toBe('EvFail');
+    expect(event.data.inbound).toEqual(BYO_INBOUND);
+  });
+
+  test('a dispatch that fails inside the ack window answers 500 and queues no redelivery', async () => {
+    projectSigningSecret = 'signing-secret';
+    dispatchFails = true; // fails at once — inside the 250 ms ack window
+    const body = JSON.stringify({
+      type: 'event_callback',
+      event_id: 'EvFast',
+      team_id: 'T1',
+      event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+    });
+    const res = await slackWebhookApp.request(`/${BYO_PROJECT}`, signed(body, 'application/json'));
+    expect(res.status).toBe(500); // Slack retries a 5xx: that retry is the redelivery
+    await new Promise((r) => setTimeout(r, 50));
+    expect(redeliveries).toEqual([]);
+  });
+
+  test('a redelivery replays the stored event through the same dispatch', async () => {
+    projectSigningSecret = 'signing-secret';
+    if (!slackRedeliveryConsumer) throw new Error('the slack redelivery consumer did not register');
+    await slackRedeliveryConsumer({
+      id: 'EvAgain',
+      source: `slack:${BYO_PROJECT}`,
+      type: 'slack.event.redelivery',
+      time: new Date().toISOString(),
+      subject: null,
+      projectId: BYO_PROJECT,
+      data: {
+        envelope: {
+          type: 'event_callback',
+          event_id: 'EvAgain',
+          event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+        },
+        inbound: BYO_INBOUND,
+      },
+    });
+    expect(dispatchedEvents).toHaveLength(1);
+  });
+
+  test('a redelivery whose work fails throws so the job queue retries it', async () => {
+    projectSigningSecret = 'signing-secret';
+    dispatchFails = true;
+    if (!slackRedeliveryConsumer) throw new Error('the slack redelivery consumer did not register');
+    await expect(
+      slackRedeliveryConsumer({
+        id: 'EvAgainFail',
+        source: `slack:${BYO_PROJECT}`,
+        type: 'slack.event.redelivery',
+        time: new Date().toISOString(),
+        subject: null,
+        projectId: BYO_PROJECT,
+        data: {
+          envelope: {
+            type: 'event_callback',
+            event_id: 'EvAgainFail',
+            event: { type: 'app_mention', channel: 'C1', user: 'U1', ts: '1.0', text: 'hi' },
+          },
+          inbound: BYO_INBOUND,
+        },
+      }),
+    ).rejects.toThrow('redelivery');
   });
 
   test('an install with no proven workspace refuses every signed callback', async () => {

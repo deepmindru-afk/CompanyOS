@@ -19,6 +19,13 @@
  * (KRTX-4015: with no line here a >2s work was invisible — the request log
  * shows only "2002ms").
  *
+ * A failure that lands AFTER the ack went out is different from one before it:
+ * the provider got its 2xx and will not redeliver, so releasing the claim alone
+ * loses the event. A route that needs the event to survive passes `onLost` —
+ * the Slack event routes use it to enqueue a durable redelivery on the job
+ * queue (integrations/event-inbox.ts machinery); interactivity and Teams keep
+ * their 500-retry window and pass nothing.
+ *
  * Not covered: a crash (OOM, SIGKILL) while the work runs. The claim then holds
  * until it expires, and the event is lost.
  */
@@ -83,20 +90,20 @@ function stageFields(): Record<string, number> {
 export async function runWebhookWork(
   label: string,
   work: () => Promise<void>,
-  options: { ackWaitMs?: number; releaseOnFailure?: boolean } = {},
+  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: () => Promise<void> | void } = {},
 ): Promise<WebhookOutcome> {
   const ackWaitMs = options.ackWaitMs ?? ACK_WAIT_MS;
   const startedAt = Date.now();
   const claims = new Set<string>();
   let outcome: WebhookOutcome = 'pending';
-  // True only when the ack timer actually won the race: the ack went out at the
-  // budget and the work outlived the response. Work that merely ran long while
+  // Set inside the ack timer's callback, so a failure handler that runs after
+  // the ack went out sees it with no race. Work that merely ran long while
   // blocking the loop still won the race, its duration is in the request log.
-  let ackTimedOut = false;
+  let ackedAt = 0;
   const running = claimScope.run(claims, work).then(
     () => {
       outcome = 'done';
-      if (ackTimedOut) {
+      if (ackedAt) {
         logger.warn('[webhook-work] work finished after the ack', {
           label,
           workMs: Date.now() - startedAt,
@@ -113,6 +120,20 @@ export async function runWebhookWork(
         ...stageFields(),
       });
       if (options.releaseOnFailure !== false) await releaseClaims(claims);
+      if (ackedAt && options.onLost) {
+        // The ack already answered 2xx — the provider will not redeliver. Let
+        // the route schedule a redelivery; a failed schedule is loud, never fatal.
+        trackDetached(
+          Promise.resolve()
+            .then(options.onLost)
+            .catch((err) =>
+              logger.error('[webhook-work] redelivery scheduling failed', {
+                label,
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            ),
+        );
+      }
     },
   );
   trackDetached(running);
@@ -121,14 +142,16 @@ export async function runWebhookWork(
     await Promise.race([
       running,
       new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, ackWaitMs);
+        timer = setTimeout(() => {
+          ackedAt = Date.now();
+          resolve();
+        }, ackWaitMs);
       }),
     ]);
     if (timer) clearTimeout(timer);
     // Still 'pending' here means the timer won: the provider got its ack and
     // the work outlived it (request logs pin at the budget and say no more).
     if (outcome === 'pending') {
-      ackTimedOut = true;
       logger.warn('[webhook-work] ack budget elapsed — work still running', {
         label,
         ackWaitMs,
