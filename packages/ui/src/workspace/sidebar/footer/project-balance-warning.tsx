@@ -23,13 +23,16 @@ function useBalanceWarning(accountId: string | undefined, tI18nComplete: UiTrans
   const { data: accountState } = useAccountState({ accountId });
   const openUpgradeDialog = useUpgradeDialogStore((s) => s.openUpgradeDialog);
 
-  // Only accounts that can actually top up (paid) get this warning —
-  // a free account can't buy credits, so it keeps the "Upgrade Plan" button.
-  // A caller without `billing.write` cannot top up either: the row is a door
-  // into the top-up dialog, so it is not theirs. The session error banner
-  // tells them to ask an owner when the wallet actually blocks a run.
+  // The row is a door into the billing dialog, so it shows only where that
+  // dialog has a way out: one-off top-ups, or (since 2026-11-09, when top-ups
+  // went Enterprise-only) a live subscription whose monthly tier can be raised.
+  // A free account keeps the "Upgrade Plan" button instead. A caller without
+  // `billing.write` cannot act either; the session error banner tells them to
+  // ask an owner when the wallet actually blocks a run.
   const canTopUp =
-    (accountState?.tier?.can_purchase_credits ?? false) && canManageBilling(accountState);
+    ((accountState?.tier?.can_purchase_credits ?? false) ||
+      (accountState?.has_active_subscription ?? false)) &&
+    canManageBilling(accountState);
 
   const handleClick = useCallback(
     () =>

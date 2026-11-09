@@ -63,7 +63,7 @@ export function SidebarAlertRow({
   tone: SidebarAlertTone;
   icon: ReactNode;
   label: string;
-  /** Optional right-aligned hint naming what the click does ("Top up"). */
+  /** Optional right-aligned hint naming what the click does ("Add credits"). */
   trailing?: ReactNode;
   onClick: () => void;
 }) {

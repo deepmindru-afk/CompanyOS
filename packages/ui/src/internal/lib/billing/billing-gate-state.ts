@@ -191,8 +191,8 @@ export function walletAlertCopy(
   action: string;
 } {
   return severity === 'blocked'
-    ? { label: tI18nComplete.raw('textf1c24ec92034'), action: 'Top up' }
-    : { label: tI18nComplete.raw('text9757b0277bb1'), action: 'Top up' };
+    ? { label: tI18nComplete.raw('textf1c24ec92034'), action: 'Add credits' }
+    : { label: tI18nComplete.raw('text9757b0277bb1'), action: 'Add credits' };
 }
 
 export interface BillingModalCopy {
