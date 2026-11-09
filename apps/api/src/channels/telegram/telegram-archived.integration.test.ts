@@ -36,7 +36,8 @@ import { db } from '../../shared/db';
 import { bindChatThread } from '../core/threads';
 import { channelWebhookRoutes } from '../inbound/webhook-routes';
 import { saveTelegramInstall, TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET } from './installs';
-import { handleTelegramEvent, telegramMessageEvent, type TelegramMessage } from './session';
+import { handleTelegramEvent } from './session';
+import { telegramMessageEvent, type TelegramMessage } from './events';
 import { telegramInbound } from './inbound';
 
 const telegramWebhookApp = channelWebhookRoutes(telegramInbound);

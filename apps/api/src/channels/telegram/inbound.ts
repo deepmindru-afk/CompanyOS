@@ -6,7 +6,8 @@
  */
 import { type ChannelInbound, safeEqual } from '../inbound/inbound';
 import { loadTelegramInstall, loadTelegramWebhookSecret } from './installs';
-import { type TelegramUpdate, telegramMessageEvent, telegramPressEvent } from './session';
+import { type TelegramUpdate, telegramMessageEvent, telegramPressEvent } from './events';
+import './session';
 
 export const telegramInbound: ChannelInbound<{ projectId: string }> = {
   platform: 'telegram',

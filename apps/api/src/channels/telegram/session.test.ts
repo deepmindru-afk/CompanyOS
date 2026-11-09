@@ -3,7 +3,9 @@ import { channelPromptText, parseChannelMessage } from '@kortix/shared';
 import { config } from '../../config';
 import type { TurnErrorInfo } from '../slack/errors';
 import { sessionWebUrl } from '../slack/util';
-import { telegramEnvelope, telegramFileOf, telegramMessageEvent, telegramNotice, telegramQuestionText, telegramThreadId, type TelegramMessage } from './session';
+import { telegramEnvelope, telegramFileOf, telegramMessageEvent, type TelegramMessage, telegramThreadId } from './events';
+import { telegramQuestionText } from './render';
+import { telegramNotice } from './session';
 
 const message: TelegramMessage = {
   message_id: 7,

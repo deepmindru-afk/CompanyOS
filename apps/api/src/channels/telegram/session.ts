@@ -18,11 +18,11 @@
  *                     one question at a time; so does a message typed while one shows
  *
  * The agent answers through the `kortix_telegram` connector (connectors/channels.ts);
- * the bot token never enters the sandbox.
+ * the bot token never enters the sandbox. The update shapes and the prompt
+ * envelope live in ./events.ts; every message a person reads is rendered in
+ * ./render.ts.
  */
-import type { RuntimeQuestion } from '@kortix/api-contract/transcript';
 import { chatThreads } from '@kortix/db';
-import type { ChannelEnvelope } from '@kortix/shared';
 import { CHANNELS } from '@kortix/shared/channel-descriptors';
 import { and, eq, like, or } from 'drizzle-orm';
 import { type IntegrationEvent, registerEventConsumer } from '../../integrations/event-inbox';
@@ -31,20 +31,16 @@ import { config } from '../../config';
 import { db } from '../../shared/db';
 import { TELEGRAM_CHANNEL_CONNECTOR_SLUG } from '../../connectors/channels';
 import { gateSender, refusedPressText } from '../core/channel-access';
-import { CHANNEL_COMMANDS, parseChannelCommand } from '../core/command-list';
-import { type CommandPress, isCommandPressData, pressData } from '../core/command-press';
+import { parseChannelCommand } from '../core/command-list';
+import { isCommandPressData } from '../core/command-press';
 import { type CommandReply, rememberCommandMenu, runChannelCommand, runCommandPress } from '../core/commands';
 import { type ChannelMessage, type ChannelNotice, type ChannelPort, type ChannelTarget, routeChannelMessage } from '../core/conversation';
 import { chatSessionStart, chatTurnModel } from '../core/model-choice';
-import { connectorReply } from '../core/prompt';
 import {
   answerQuestionInChat,
   clearQuestionButtons,
   handleQuestionTap,
-  type QuestionFooter,
-  type QuestionMessage,
   type QuestionPort,
-  type QuestionTapReply,
   questionPicksSoFar,
 } from '../core/questions';
 import { registerSessionPort } from '../core/session-notice';
@@ -57,242 +53,9 @@ import { telegramAccessPort } from './access';
 import { TELEGRAM_UPDATES, telegramCall, telegramFile } from './api';
 import { loadTelegramBotToken, loadTelegramInstall, loadTelegramWebhookSecret } from './installs';
 import { repairTelegramMenu } from './menu';
+import { type TelegramCallbackQuery, type TelegramMessage, telegramEnvelope, telegramThreadId } from './events';
+import { type InlineButton, clip, inlineKeyboard, MAX_BUTTONS, questionBody, questionFooter, questionMessageText, telegramCommandMessage } from './render';
 import { projectsView } from '../../workspaces/rows';
-
-export const TELEGRAM_MESSAGE_EVENT = 'telegram.message.created';
-
-/** A file a message carries: the id `getFile` takes, and what Telegram states about it. */
-interface TelegramFileRef { file_id: string; file_size?: number; file_name?: string; mime_type?: string; duration?: number }
-
-export interface TelegramMessage {
-  message_id: number;
-  date?: number;
-  chat: { id: number; type: string; title?: string; username?: string; first_name?: string };
-  from?: { id?: number; username?: string; first_name?: string; last_name?: string; is_bot?: boolean };
-  text?: string;
-  caption?: string;
-  message_thread_id?: number;
-  is_topic_message?: boolean;
-  photo?: Array<TelegramFileRef & { width: number; height: number }>;
-  /** Also set for an animation, so an animation is read once, as this. */
-  document?: TelegramFileRef;
-  audio?: TelegramFileRef;
-  voice?: TelegramFileRef;
-  video?: TelegramFileRef;
-  video_note?: TelegramFileRef;
-  sticker?: { emoji?: string };
-  media_group_id?: string;
-}
-
-/** Each kind of file, in the order read: Kortix's word for it (also the session-view label) and the type Telegram leaves out. */
-const TELEGRAM_FILE_KINDS = [
-  { kind: 'photo', noun: 'photo', mime: 'image/jpeg' },
-  { kind: 'document', noun: 'document', mime: 'application/octet-stream' },
-  { kind: 'audio', noun: 'audio', mime: 'audio/mpeg' },
-  { kind: 'voice', noun: 'voice message', mime: 'audio/ogg' },
-  { kind: 'video', noun: 'video', mime: 'video/mp4' },
-  { kind: 'video_note', noun: 'video message', mime: 'video/mp4' },
-] as const;
-
-/**
- * The message's own file, never a quoted message's (`reply_to_message`). A photo comes in several
- * sizes: the largest by area, since the Bot API does not state their order. Null: no file.
- */
-export function telegramFileOf(
-  message: TelegramMessage,
-): { ref: TelegramFileRef; kind: string; name?: string; mime: string; label: string } | null {
-  for (const k of TELEGRAM_FILE_KINDS) {
-    const value = message[k.kind];
-    const ref = Array.isArray(value)
-      ? value.reduce<(typeof value)[number] | undefined>((best, size) => (!best || size.width * size.height > best.width * best.height ? size : best), undefined)
-      : value;
-    if (!ref?.file_id) continue;
-    const label = k.kind === 'document' && ref.file_name ? `file ${ref.file_name}`
-      : ref.duration && (k.kind === 'voice' || k.kind === 'video_note') ? `${k.noun}, ${ref.duration} s`
-      : k.noun;
-    return { ref, kind: k.noun, ...(ref.file_name ? { name: ref.file_name } : {}), mime: ref.mime_type || k.mime, label };
-  }
-  return null;
-}
-
-/**
- * The sender's words: the text, else the caption, else a label for the file or sticker. A named file keeps
- * its label under a caption, so its name reaches the agent in the sender's own (untrusted) text.
- */
-function telegramText(message: TelegramMessage): string {
-  if (message.text !== undefined) return message.text;
-  const file = telegramFileOf(message);
-  if (message.caption !== undefined) return file?.name ? `${message.caption}\n(${file.label})` : message.caption;
-  if (file) return `(${file.label})`;
-  if (message.sticker) return message.sticker.emoji ? `(sticker ${message.sticker.emoji})` : '(sticker)';
-  return '(no text)';
-}
-
-/** A tap on an inline button. */
-export interface TelegramCallbackQuery {
-  id: string;
-  from: { id: number; username?: string };
-  /** The message with the button. Absent for an inline-mode message, which Kortix never sends. */
-  message?: Pick<TelegramMessage, 'message_id' | 'chat' | 'message_thread_id' | 'is_topic_message'>;
-  data?: string;
-}
-
-export interface TelegramUpdate {
-  update_id: number;
-  message?: TelegramMessage;
-  edited_message?: TelegramMessage;
-  callback_query?: TelegramCallbackQuery;
-}
-
-/** A forum topic is its own conversation; otherwise the whole chat is one. */
-export function telegramThreadId(message: TelegramMessage): string {
-  return message.is_topic_message && message.message_thread_id
-    ? `${message.chat.id}:${message.message_thread_id}`
-    : String(message.chat.id);
-}
-
-/**
- * The inbox envelope for an update, or null when it carries nothing to answer. Edits are skipped, and so
- * is a message with no text, caption, file or sticker: a join, a pin, a location, a contact or a poll.
- */
-export function telegramMessageEvent(
-  projectId: string,
-  botId: string,
-  update: TelegramUpdate,
-): IntegrationEvent | null {
-  const message = update.message;
-  if (!message?.chat || message.from?.is_bot) return null;
-  if (message.text === undefined && message.caption === undefined && !message.sticker && !telegramFileOf(message)) return null;
-  return {
-    id: String(update.update_id),
-    source: `telegram:${botId}`,
-    type: TELEGRAM_MESSAGE_EVENT,
-    time: new Date((message.date ?? Date.now() / 1000) * 1000).toISOString(),
-    subject: telegramThreadId(message),
-    sequence: update.update_id,
-    projectId,
-    data: { message: message as unknown as Record<string, unknown> },
-  };
-}
-
-export const TELEGRAM_PRESS_EVENT = 'telegram.callback_query.created';
-
-/** The inbox envelope for a button press, or null for an update without one. */
-export function telegramPressEvent(projectId: string, botId: string, update: TelegramUpdate): IntegrationEvent | null {
-  const press = update.callback_query;
-  if (!press?.id || !press.from) return null;
-  const message = press.message;
-  const stored: TelegramCallbackQuery = {
-    id: press.id,
-    from: { id: press.from.id, ...(press.from.username ? { username: press.from.username } : {}) },
-    ...(press.data ? { data: press.data } : {}),
-    ...(message
-      ? {
-          message: {
-            message_id: message.message_id,
-            chat: { id: message.chat.id, type: message.chat.type },
-            ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
-            ...(message.is_topic_message ? { is_topic_message: true } : {}),
-          },
-        }
-      : {}),
-  };
-  return {
-    id: String(update.update_id),
-    source: `telegram:${botId}`,
-    type: TELEGRAM_PRESS_EVENT,
-    time: new Date().toISOString(),
-    // The topic's subject: a press waits for the messages sent before it there.
-    subject: message ? telegramThreadId(message) : null,
-    sequence: update.update_id,
-    projectId,
-    // Only what the press handler reads: no names, no question text.
-    data: { callback_query: stored as unknown as Record<string, unknown> },
-  };
-}
-
-/** Option buttons on one page (Teams parity, teams/cards.ts); more options turn pages. */
-const MAX_BUTTONS = CHANNELS.telegram.buttons.max;
-/** 3900: of the 4096 characters a message holds, the footer gets 190, the blank line 2, and 4 stay spare. */
-const QUESTION_BODY_MAX = CHANNELS.telegram.messageChars - 196;
-/** A tap on a question nothing can answer any more: its session is gone, or the chat moved on. */
-const EARLIER_QUESTION = 'This question is from an earlier conversation. Send your answer as a message.';
-
-/** At most `max` UTF-16 units, never half an emoji: Telegram refuses a lone surrogate. */
-function clip(text: string, max: number): string {
-  const cut = text.slice(0, max);
-  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
-}
-
-/**
- * Questions as chat text: each question with its numbered options, then the
- * footer. `step`: one question of several, under "Question <at> of <count>".
- */
-export function telegramQuestionText(questions: RuntimeQuestion[], footer: string, step?: QuestionMessage['step']): string {
-  const title = (q: RuntimeQuestion, i: number) =>
-    step
-      ? `Question ${step.at} of ${step.count}${q.header ? ` · ${q.header}` : ''}\n${q.question}`
-      : `${questions.length > 1 ? `${i + 1}) ` : ''}${q.header ? `${q.header}: ` : ''}${q.question}`;
-  const body = questions
-    .map((q, i) =>
-      [
-        `${title(q, i)}${q.multiple ? ' (pick one or more)' : ''}`,
-        ...q.options.map((o, j) => `${j + 1}. ${o.label}${o.description ? ` — ${o.description}` : ''}`),
-      ].join('\n'),
-    )
-    .join('\n\n');
-  return `${clip(body, QUESTION_BODY_MAX)}\n\n${clip(footer, 190)}`;
-}
-
-/** A question message's last line; a tap's toast uses the same words. */
-function questionFooter(footer: QuestionFooter | QuestionTapReply): string {
-  switch (footer.kind) {
-    case 'ask':
-      return footer.buttons
-        ? 'Tap an option, or reply to this message with your own answer.'
-        : `Reply to this message with your answer${footer.numbered ? ', each question by its number' : ''}.`;
-    case 'step':
-      return `${footer.many ? 'Tap each option you want, then Done' : 'Tap an option'}${footer.typed ? ', or type your own answer' : ''}.`;
-    case 'already_answered':
-      return 'This question was already answered.';
-    case 'none_ticked':
-      return 'Tap at least one option first.';
-    case 'answered':
-      return `Answered: ${footer.label}`;
-    case 'answered_in_chat':
-      return 'Answered in the chat.';
-    case 'new_conversation':
-      return 'A new conversation started.';
-    case 'earlier':
-      return EARLIER_QUESTION;
-  }
-}
-
-const questionMessageText = (m: QuestionMessage) =>
-  m.questions.length ? telegramQuestionText(m.questions, questionFooter(m.footer), m.step) : questionFooter(m.footer);
-
-/** One option a row, ✓ on a ticked one; then the page turns; then Done. */
-function inlineKeyboard(m: QuestionMessage): InlineButton[][] {
-  const button = (text: string, data: string): InlineButton => ({ text: clip(text, 60), callback_data: data });
-  const turn = [...(m.back ? [button('‹ Back', m.back)] : []), ...(m.more ? [button('More ›', m.more)] : [])];
-  return [
-    ...(m.buttons ?? []).map((b) => [button(`${b.ticked ? '✓ ' : ''}${b.label}`, b.data)]),
-    ...(turn.length ? [turn] : []),
-    ...(m.done ? [[button('Done ›', m.done)]] : []),
-  ];
-}
-
-/** The question as the agent would send it with `send_message`. */
-function questionBody(target: ChannelTarget, m: QuestionMessage): Record<string, unknown> {
-  const [chatId, topicId] = target.threadId.split(':');
-  return {
-    // A string, as the agent sends it, so a policy condition on it decides as it would for the agent.
-    chat_id: chatId,
-    text: questionMessageText(m),
-    ...(topicId ? { message_thread_id: Number(topicId) } : {}),
-    ...(m.buttons ? { reply_markup: { inline_keyboard: inlineKeyboard(m) } } : {}),
-  };
-}
 
 /** Telegram shows a spinner until a press is answered. Never throws. */
 function answerPress(token: string, id: string, text = '', alert = false): Promise<unknown> {
@@ -700,43 +463,6 @@ async function telegramThreadOfSession(sessionId: string, botId: string, chatId:
   return row?.threadId ?? null;
 }
 
-type InlineButton = { text: string; callback_data: string } | { text: string; url: string };
-
-/**
- * A command's reply (core/commands.ts `CommandReply`) as plain chat text and an inline keyboard:
- * one row per option, then the page row, then the actions in pairs, then a panel's https link.
- * Any other link is the last text line: Telegram may refuse a URL button for a host such as localhost.
- */
-function telegramCommandMessage(reply: CommandReply): { text: string; keyboard: InlineButton[][] } {
-  const button = (label: string, press: CommandPress): InlineButton => ({ text: clip(label, 60), callback_data: pressData(press) });
-  const lines: string[] = [];
-  const keyboard: InlineButton[][] = [];
-  switch (reply.kind) {
-    case 'notice':
-      lines.push(reply.text);
-      break;
-    case 'panel':
-      lines.push(reply.title, ...reply.rows.map((r) => `${r.label}: ${r.value}`));
-      break;
-    case 'choices': {
-      lines.push(`${reply.title}${reply.pages > 1 ? ` (page ${reply.page + 1} of ${reply.pages})` : ''}`, reply.usage);
-      keyboard.push(...reply.options.map((o) => [button(`${o.current ? '✓ ' : ''}${o.label}`, o.press)]));
-      const turn = [...(reply.back ? [button('‹ Back', reply.back)] : []), ...(reply.more ? [button('More ›', reply.more)] : [])];
-      if (turn.length) keyboard.push(turn);
-      break;
-    }
-    case 'help':
-      lines.push(reply.intro, ...reply.commands.map((c) => `${c.usage} — ${c.description}`), reply.footer);
-      break;
-  }
-  const actions = (reply.actions ?? []).map((a) => button(a.label, a.press));
-  for (let i = 0; i < actions.length; i += 2) keyboard.push(actions.slice(i, i + 2));
-  const url = 'url' in reply ? reply.url : undefined;
-  if (url && reply.kind === 'panel' && url.startsWith('https://')) keyboard.push([{ text: 'Open in Kortix', url }]);
-  else if (url) lines.push(url);
-  return { text: reply.note ? `${lines.join('\n')}\n\n${reply.note}` : lines.join('\n'), keyboard };
-}
-
 /**
  * Once per bot, before its first menu or question: a bot connected before
  * #10994 (2026-10-28) receives messages only (`allowed_updates: ['message']`),
@@ -785,46 +511,6 @@ async function sendTelegramReply(token: string, target: ChannelTarget, text: str
       return null;
     },
   );
-}
-
-/** "/new, /stop, … and /help": the commands the agent never receives. */
-const COMMAND_NAMES = CHANNEL_COMMANDS.map((c) => `/${c.name}`);
-const KORTIX_COMMANDS = `${COMMAND_NAMES.slice(0, -1).join(', ')} and ${COMMAND_NAMES.at(-1)}`;
-
-/**
- * One message for the agent and the session view: the core renders it
- * (`channelPromptText`). A button press keeps no names (`telegramPressEvent`),
- * so its sender is the username or the id.
- */
-export function telegramEnvelope(message: TelegramMessage): ChannelEnvelope {
-  const { chat, from } = message;
-  const name = [from?.first_name, from?.last_name].filter(Boolean).join(' ');
-  const topic = message.is_topic_message ? message.message_thread_id : undefined;
-  return {
-    platform: CHANNELS.telegram.envelope,
-    sender: from?.username ? `@${from.username}` : name || `user ${from?.id ?? 'unknown'}`,
-    where: chat.type === 'private' ? 'direct message' : chat.title || `chat ${chat.id}`,
-    text: telegramText(message),
-    reply: connectorReply(TELEGRAM_CHANNEL_CONNECTOR_SLUG, 'send_message', {
-      chat_id: String(chat.id),
-      text: '<reply>',
-      reply_parameters: { message_id: message.message_id },
-      ...(topic ? { message_thread_id: topic } : {}),
-    }),
-    notes: [
-      `Chat ${chat.id} (${chat.type})${topic ? `, topic ${topic}` : ''}, sender id ${from?.id ?? 'unknown'}, message id ${message.message_id}.`,
-      ...(message.media_group_id
-        ? ['This message is one item of an album. Telegram sends each item as its own message, and usually only the first carries the caption.']
-        : []),
-      `One message holds at most ${CHANNELS.telegram.messageChars} characters; send a longer answer as several messages.`,
-      'Whenever you need the user to choose or to answer, call your question tool, with every question in one call: Kortix shows them in this chat as buttons, one question at a time.',
-      'Never list choices or questions as plain text. Ask in plain words only when the tool result says the question could not be posted.',
-      `While you work on a long task, show typing: ${connectorReply(TELEGRAM_CHANNEL_CONNECTOR_SLUG, 'send_chat_action', { chat_id: String(chat.id) })}.`,
-      'For bold or code, add `"parse_mode":"HTML"` and use <b>, <i>, <code>, <pre>; otherwise send plain text.',
-      'The bot token is resolved server-side. Do not look for it in the sandbox.',
-      `The next message in this chat continues this session. Kortix answers ${KORTIX_COMMANDS} in the chat itself; those commands never reach you.`,
-    ],
-  };
 }
 
 // One queue for every Telegram update: a replica on older code fails a press
