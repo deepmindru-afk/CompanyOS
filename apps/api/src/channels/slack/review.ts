@@ -2,8 +2,8 @@ import { config } from '../../config';
 import { slackAgentPersona } from './persona';
 import { postBlocks, postMessage } from '../slack-api';
 import { type ReviewCardItem, buildReviewCardBlocks } from './review-cards';
-import { deleteTurn, finalizeTurn, loadTurn } from './turn';
 import { sessionWebUrl } from './util';
+import { prepareWaitingTurn } from './waiting-turn';
 
 // Post a Review Center item into the live Slack thread as an actionable card, and
 // END the turn — the human-in-the-loop twin of postQuestion (questions.ts). A
@@ -18,20 +18,15 @@ export async function postReviewCard(
   sessionId: string,
   item: ReviewCardItem,
 ): Promise<{ ok: boolean; error?: string }> {
-  const handle = await loadTurn(sessionId);
+  const handle = await prepareWaitingTurn(sessionId, 'Waiting for your decision');
   if (!handle) {
     // No active Slack turn for this session — it isn't a live Slack run. Nothing
     // to post; not an error the caller needs to care about.
     return { ok: false, error: 'No active Slack turn for this session.' };
   }
 
-  // Close out the in-flight plan, then post the card below it. The button click
-  // resumes the session via spawnAgentTurn, the same way a question answer does.
-  // NOT "Task complete" — the agent is waiting for a decision, not finished.
-  // Teams carried the identical bug; both are fixed together.
-  await finalizeTurn(handle, { title: 'Waiting for your decision', unfinished: true });
-  await deleteTurn(sessionId);
-
+  // The button click resumes the session via spawnAgentTurn, the same way a
+  // question answer does.
   const webUrl = sessionWebUrl(config.FRONTEND_URL, handle.projectId, handle.sessionId);
   const blocks = buildReviewCardBlocks(item, { webUrl });
   const fallback = item.title?.slice(0, 200) || 'A review item needs you';

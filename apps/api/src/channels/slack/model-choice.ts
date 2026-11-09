@@ -26,6 +26,7 @@ import {
 import { chatUser, resolveChatActor } from '../core/identity';
 import { authorizeChannelChange } from '../core/settings';
 import { settingsRefusalText, slackSettingsChannel, slackUserOf } from './settings-text';
+import { slackChannelIsDm } from './util';
 import { channelModelContext } from './model-gate';
 import { currentChannelSelection, setChannelModel } from './selection';
 import type { SlashResponse } from './types';
@@ -51,11 +52,6 @@ const MAX_OPTION_VALUE = 150;
 const PERSONAL_SCOPE_NOTE = 'Includes your own API keys and ChatGPT subscriptions. When a provider has several keys, they rotate.';
 const SHARED_SCOPE_NOTE =
   'Only keys shared with the whole Kortix workspace work here: this channel is shared. Your own keys and ChatGPT subscription work in a DM with me.';
-
-/** A DM with the bot. Slack DM channel ids start with `D`; group DMs and channels do not. */
-export function slackChannelIsDm(channelId: string): boolean {
-  return channelId.startsWith('D');
-}
 
 /**
  * Who this conversation's model decisions are made for; null when no project

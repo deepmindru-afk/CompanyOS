@@ -1,25 +1,22 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { chatInstalls, chatThreads } from '@kortix/db';
+import { chatThreads } from '@kortix/db';
 import { db } from '../../shared/db';
 import { loadSlackTokenForProject } from '../install-store';
 import { publishHomeView } from '../slack-api';
 import { config } from '../../config';
 import { escapeMrkdwn, formatRelativeTime } from './util';
 import { isKortixHostedRepo, repoDisplayLabel, repoPreviewImages } from '../repo-preview';
+import { slackInstalledProjectIds } from './inbound';
 import type { HomeProjectRow, HomeRecentRow } from './types';
 import { projectsView } from '../../workspaces/rows';
 
 export async function publishHomeForUser(teamId: string, userId: string): Promise<void> {
-  const installs = await db
-    .select({ projectId: chatInstalls.projectId })
-    .from(chatInstalls)
-    .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
-  if (installs.length === 0) return;
+  const projectIds = await slackInstalledProjectIds(teamId);
+  if (projectIds.length === 0) return;
 
-  const token = await loadSlackTokenForProject(installs[0].projectId);
+  const token = await loadSlackTokenForProject(projectIds[0]);
   if (!token) return;
 
-  const projectIds = installs.map((i) => i.projectId);
   const projectRows = await db
     .select({ projectId: projectsView.projectId, name: projectsView.name, repoUrl: projectsView.repoUrl })
     .from(projectsView)

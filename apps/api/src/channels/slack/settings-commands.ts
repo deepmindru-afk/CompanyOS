@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { chatChannelBindings, chatInstalls } from '@kortix/db';
+import { chatChannelBindings } from '@kortix/db';
 import { db } from '../../shared/db';
 import { config } from '../../config';
 import { lookupEmailsByUserIds } from '../../accounts/core/app';
@@ -9,6 +9,7 @@ import { chooseEffectiveAgent } from '../../llm-gateway/resolution/effective';
 import { lookupChatIdentity } from '../core/identity';
 import { changeChannelAgent, changeChannelPolicy, unbindChannel } from '../core/settings';
 import { applySlackModelChoice, buildSlackModelsResponse } from './model-choice';
+import { slackInstalledProjectIds } from './inbound';
 import { settingsRefusalText, slackSettingsChannel, slackUserOf } from './settings-text';
 import { buildAgentPickerBlocks, loadScopedChannelAgents } from './agent-picker';
 import { channelModelContext } from './model-gate';
@@ -479,12 +480,8 @@ export async function slashSetModel(ctx: SlashCtx, arg: string): Promise<SlashRe
 }
 
 export async function listWorkspaceProjects(teamId: string): Promise<WorkspaceProject[]> {
-  const installs = await db
-    .select({ projectId: chatInstalls.projectId })
-    .from(chatInstalls)
-    .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
-  if (installs.length === 0) return [];
-  const ids = installs.map((i) => i.projectId);
+  const ids = await slackInstalledProjectIds(teamId);
+  if (ids.length === 0) return [];
   return db
     .select({ projectId: projectsView.projectId, name: projectsView.name, repoUrl: projectsView.repoUrl })
     .from(projectsView)

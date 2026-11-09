@@ -30,6 +30,11 @@ export function verifySlackSignature(
   return timingSafeEqual(a, b);
 }
 
+/** A DM with the bot. Slack DM channel ids start with `D`; group DMs and channels do not. */
+export function slackChannelIsDm(channelId: string): boolean {
+  return channelId.startsWith('D');
+}
+
 export function stripMentions(text: string): string {
   return text.replace(/<@[A-Z0-9]+>/g, '').trim();
 }

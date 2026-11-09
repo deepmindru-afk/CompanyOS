@@ -30,7 +30,7 @@ import { isAdaptedId } from '../../projects/review-adapters';
 import { decideSlackThreadJoin } from './participants';
 import { attachPendingSlackAuthResponseUrl, consumePendingSlackPickerMessage } from './auth-resume';
 import { buildSlackLoginUrl, verifyLoginState } from './login';
-import { escapeMrkdwn, respondViaUrl, sessionWebUrl } from './util';
+import { escapeMrkdwn, respondViaUrl, sessionWebUrl, slackChannelIsDm } from './util';
 import { handleSlashCommand } from './commands';
 import { agentChangeText, currentChannelProjectId } from './settings-commands';
 import { settingsRefusalText, slackSettingsChannel, slackUserOf } from './settings-text';
@@ -961,7 +961,7 @@ export async function handleBlockAction(
   if (token && pickerTs) {
     // DM channel ids start with 'D' — a <#D…> mention renders as a dead link
     // there, so phrase it as "this DM" instead of a channel mention.
-    const target = channelId.startsWith('D') ? 'this DM' : `<#${channelId}>`;
+    const target = slackChannelIsDm(channelId) ? 'this DM' : `<#${channelId}>`;
     await updateMessage(
       token,
       channelId,

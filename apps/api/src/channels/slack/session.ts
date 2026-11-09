@@ -14,6 +14,8 @@ import { normalizeString } from '../../projects/lib/serializers';
 import { chooseEffectiveAgent } from '../../llm-gateway/resolution/effective';
 import { EVENT_DEDUPE_TTL_MS } from './app';
 import { buildAgentUnavailablePickerBlocks, loadScopedChannelAgents } from './agent-picker';
+import { claimExpiringKey } from './dedup';
+import { slackChannelIsDm } from './util';
 import { currentChannelSelection } from './selection';
 import { startErrorMessage } from './start-error';
 import {
@@ -383,17 +385,10 @@ function queuedMessage(): string {
 
 // Fail open on DB errors rather than dropping a message.
 export async function claimThreadCreate(key: string): Promise<boolean> {
-  try {
-    const inserted = await db
-      .insert(chatEventDedup)
-      .values({ eventId: key, expiresAt: new Date(Date.now() + EVENT_DEDUPE_TTL_MS) })
-      .onConflictDoNothing({ target: chatEventDedup.eventId })
-      .returning({ eventId: chatEventDedup.eventId });
-    return inserted.length > 0;
-  } catch (err) {
-    console.warn('[slack-webhook] thread-create claim failed (fail-open)', err);
-    return true;
-  }
+  return claimExpiringKey(key, EVENT_DEDUPE_TTL_MS, {
+    onDbError: true,
+    log: 'thread-create claim failed (fail-open)',
+  });
 }
 
 async function releaseThreadCreate(key: string): Promise<void> {
@@ -522,7 +517,7 @@ export function renderFollowUpPrompt(
     'This session may serve several threads. Reply to THIS message in its originating channel and thread:',
     slackReplyCommand(event.channel ?? 'unknown', event.thread_ts ?? event.ts ?? 'unknown'),
     'The live slack step stream follows this message automatically. Do not use the session\'s original Slack thread for this reply.',
-    ...(event.channel_type !== 'im' && !event.channel?.startsWith('D') ? [readThreadInstruction(event)] : []),
+    ...(event.channel_type !== 'im' && !(event.channel && slackChannelIsDm(event.channel)) ? [readThreadInstruction(event)] : []),
     '',
     text,
     renderFileInfo(event),

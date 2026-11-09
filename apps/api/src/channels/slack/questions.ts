@@ -1,8 +1,8 @@
 import { questionButtonData } from '../core/question-token';
 import { postBlocks, postMessage } from '../slack-api';
 import { slackAgentPersona } from './persona';
-import { deleteTurn, finalizeTurn, loadTurn } from './turn';
 import { escapeMrkdwn } from './util';
+import { prepareWaitingTurn } from './waiting-turn';
 import type { QuestionInfo } from './types';
 
 export type { QuestionInfo } from './types';
@@ -35,19 +35,12 @@ export async function postQuestion(
   /** The stored question its buttons answer (`buildQuestionBlocks`). */
   pendingId?: string,
 ): Promise<{ ok: boolean; answers?: string[][]; error?: string }> {
-  const handle = await loadTurn(sessionId);
+  // Close out the in-flight plan, then post the question(s) below it — the shell
+  // lives in waiting-turn.ts (teams/waiting-turn.ts is the Teams twin).
+  const handle = await prepareWaitingTurn(sessionId, 'Waiting for your answer');
   if (!handle) {
     return { ok: false, error: 'No active Slack turn for this session.' };
   }
-
-  // Close out the in-flight plan, then post the question(s) below it.
-  //
-  // NOT "Task complete", which is what the default title said for as long as
-  // this has existed: the agent did not finish, it asked. The step in flight
-  // gets the neutral glyph for the same reason. Teams had the identical bug;
-  // both are fixed together because it is one mistake in two copies.
-  await finalizeTurn(handle, { title: 'Waiting for your answer', unfinished: true });
-  await deleteTurn(sessionId);
 
   const blocks = buildQuestionBlocks(questions, pendingId);
   const fallback = questions[0]?.question?.slice(0, 200) ?? 'A question for you';

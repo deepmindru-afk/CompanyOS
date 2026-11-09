@@ -490,7 +490,7 @@
   },
   "src/channels/slack/dedup.ts": {
     "no-console": {
-      "count": 4
+      "count": 2
     }
   },
   "src/channels/slack/dispatch.ts": {
@@ -547,9 +547,6 @@
     "no-console": {
       "count": 1
     },
-    "no-restricted-imports": {
-      "count": 2
-    },
     "no-restricted-syntax": {
       "count": 8
     }
@@ -567,7 +564,7 @@
       "count": 2
     },
     "no-console": {
-      "count": 5
+      "count": 4
     }
   },
   "src/channels/slack/stop.ts": {
@@ -583,7 +580,7 @@
       "count": 2
     },
     "no-console": {
-      "count": 9
+      "count": 8
     },
     "no-restricted-properties": {
       "count": 1

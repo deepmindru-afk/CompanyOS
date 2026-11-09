@@ -21,6 +21,7 @@ import {
   type StreamTaskChunk,
 } from '../slack-api';
 import { STREAM_TTL_MS, WORKING_EMOJI } from './app';
+import { claimExpiringKey } from './dedup';
 import { SLACK_STOP_ACTION } from './stop-action';
 import { classifyTurnError, type TurnErrorInfo } from './errors';
 import type { SlackEvent, LiveTurn } from './types';
@@ -697,22 +698,12 @@ const ANSWER_RESCUE_TTL_MS = STREAM_TTL_MS;
 // to answer" an agent saw on its second turn (INC-2026-09-08-CONNECTOR-GATEWAY).
 export async function claimAnswerRescue(sessionId: string, text: string): Promise<boolean> {
   const digest = createHash('sha256').update(text).digest('hex').slice(0, 16);
-  try {
-    const inserted = await db
-      .insert(chatEventDedup)
-      .values({
-        eventId: `slack:answerrescue:${sessionId}:${digest}`,
-        expiresAt: new Date(Date.now() + ANSWER_RESCUE_TTL_MS),
-      })
-      .onConflictDoNothing({ target: chatEventDedup.eventId })
-      .returning({ eventId: chatEventDedup.eventId });
-    return inserted.length > 0;
-  } catch (err) {
-    // Fail CLOSED. The whole point is to not post twice into a thread someone is
-    // reading; a dropped rescue is still recoverable from the session link.
-    console.warn('[slack-webhook] answer-rescue claim failed (suppressing)', err);
-    return false;
-  }
+  // Fail CLOSED. The whole point is to not post twice into a thread someone is
+  // reading; a dropped rescue is still recoverable from the session link.
+  return claimExpiringKey(`slack:answerrescue:${sessionId}:${digest}`, ANSWER_RESCUE_TTL_MS, {
+    onDbError: false,
+    log: 'answer-rescue claim failed (suppressing)',
+  });
 }
 
 export async function postAnswerWithoutTurnDetailed(

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
-import { chatChannelBindings, chatInstalls } from '@kortix/db';
+import { chatChannelBindings } from '@kortix/db';
 import { db } from '../../shared/db';
 import {
   loadSlackBotIdForProject,
@@ -47,6 +47,8 @@ import {
   clearThreadErrorNotice,
   inboundMessageKey,
 } from './dedup';
+import { slackInstalledProjectIds } from './inbound';
+import { closeWaitingTurn } from './waiting-turn';
 import { escapeMrkdwn, mentionsUser, respondViaUrl, sessionWebUrl, stripMentions } from './util';
 import { config } from '../../config';
 import type {
@@ -144,14 +146,13 @@ export async function resolveOauthProject(
     }
   }
 
-  const installs = await db
-    .select({ projectId: chatInstalls.projectId })
-    .from(chatInstalls)
-    .innerJoin(projectsView, and(eq(projectsView.projectId, chatInstalls.projectId), eq(projectsView.status, 'active')))
-    .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
+  // Only ACTIVE projects take the auto-bind or the picker decision: an
+  // archived Kortix workspace keeps its install row after the archive, and
+  // binding a no-longer-open workspace would dead-end every message.
+  const installs = await slackInstalledProjectIds(teamId, { activeOnly: true });
   if (installs.length === 0) return { kind: 'none' };
   if (installs.length === 1) {
-    const onlyProjectId = installs[0].projectId;
+    const onlyProjectId = installs[0];
     if (channelId) {
       await db
         .insert(chatChannelBindings)
@@ -163,7 +164,7 @@ export async function resolveOauthProject(
     }
     return { kind: 'project', projectId: onlyProjectId };
   }
-  return { kind: 'ambiguous', projectIds: installs.map((i) => i.projectId) };
+  return { kind: 'ambiguous', projectIds: installs };
 }
 
 export async function maybePostPicker(
@@ -316,12 +317,9 @@ export async function handleAssistantThreadStarted(
   if (resolution.kind === 'ambiguous') {
     await postProjectPicker({ teamId, projectIds: resolution.projectIds, channelId, threadTs, isDm: true });
   } else if (resolution.kind === 'pending') {
-    const installs = await db
-      .select({ projectId: chatInstalls.projectId })
-      .from(chatInstalls)
-      .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
+    const installs = await slackInstalledProjectIds(teamId);
     if (installs.length > 0) {
-      await postProjectPicker({ teamId, projectIds: installs.map((i) => i.projectId), channelId, threadTs, isDm: true });
+      await postProjectPicker({ teamId, projectIds: installs, channelId, threadTs, isDm: true });
     }
   }
   // 'project' (bound, or auto-bound when there's exactly one) and 'none' →
@@ -386,12 +384,7 @@ export async function maybeHandleDmCommand(
     tokenProjectId = binding?.projectId ?? null;
   }
   if (!tokenProjectId) {
-    const [install] = await db
-      .select({ projectId: chatInstalls.projectId })
-      .from(chatInstalls)
-      .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)))
-      .limit(1);
-    tokenProjectId = install?.projectId ?? null;
+    tokenProjectId = (await slackInstalledProjectIds(teamId))[0] ?? null;
   }
   if (!tokenProjectId) return true; // it WAS a command — just nothing to reply with
   const token = await loadSlackTokenForProject(tokenProjectId);
@@ -547,15 +540,11 @@ async function postChannelIntro(projectId: string, channelId: string): Promise<v
 
 export async function maybePostChannelIntro(teamId: string, event: SlackEvent): Promise<void> {
   if (!event.channel) return;
-  const [install] = await db
-    .select({ projectId: chatInstalls.projectId })
-    .from(chatInstalls)
-    .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)))
-    .limit(1);
-  if (!install) return;
-  const botUserId = await loadSlackBotUserIdForProject(install.projectId);
+  const projectId = (await slackInstalledProjectIds(teamId))[0];
+  if (!projectId) return;
+  const botUserId = await loadSlackBotUserIdForProject(projectId);
   if (!botUserId || event.user !== botUserId) return;
-  await postChannelIntro(install.projectId, event.channel);
+  await postChannelIntro(projectId, event.channel);
 }
 
 /**
@@ -1014,7 +1003,7 @@ async function deliverToExistingThread(
           error: `This thread's session hit an error and couldn't start. <${url}|Open it in Kortix> to see what happened.`,
         });
       } else {
-        await finalizeTurn(handle, { title: "Couldn't start", unfinished: true });
+        await closeWaitingTurn(handle, "Couldn't start");
       }
     }
     return { handled: true as const, handle };

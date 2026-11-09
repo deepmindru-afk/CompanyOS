@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { chatInstalls } from '@kortix/db';
 import { db } from '../../shared/db';
 import { findChatThread } from '../core/threads';
+import { projectsView } from '../../workspaces/rows';
 
 /**
  * What the signature check on an inbound Slack request proved.
@@ -56,6 +57,38 @@ export async function provenSlackWorkspaces(projectId: string): Promise<string[]
     .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.projectId, projectId)))
     .orderBy(desc(chatInstalls.connectedAt));
   return rows.map((r) => r.workspaceId).filter(Boolean);
+}
+
+/**
+ * The projects with Slack installed for ONE Kortix workspace, as their ids.
+ * `activeOnly` keeps the shared-app resolution able to pick (or offer) a Kortix
+ * workspace the account still uses: an archived project's install row stays
+ * behind after a workspace was archived, and a picker or auto-bind it offered
+ * would dead-end on a workspace no one can open.
+ */
+export async function slackInstalledProjectIds(
+  teamId: string,
+  opts?: { activeOnly?: boolean },
+): Promise<string[]> {
+  if (!opts?.activeOnly) {
+    const rows = await db
+      .select({ projectId: chatInstalls.projectId })
+      .from(chatInstalls)
+      .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
+    return rows.map((r) => r.projectId);
+  }
+  const rows = await db
+    .select({ projectId: chatInstalls.projectId })
+    .from(chatInstalls)
+    .innerJoin(
+      projectsView,
+      and(
+        eq(projectsView.projectId, chatInstalls.projectId),
+        eq(projectsView.status, 'active'),
+      ),
+    )
+    .where(and(eq(chatInstalls.platform, 'slack'), eq(chatInstalls.platformTeamId, teamId)));
+  return rows.map((r) => r.projectId);
 }
 
 /**
