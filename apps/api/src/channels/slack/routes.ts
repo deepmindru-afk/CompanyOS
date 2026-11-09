@@ -297,12 +297,27 @@ export async function redeliverSlackEvent(event: IntegrationEvent): Promise<void
   if (!envelope?.event) throw new Error('slack event redelivery payload has no envelope');
   if (inbound) bindIntegrationPrincipal('slack', { projectId: inbound.projectId });
   else bindIntegrationPrincipal('slack');
+  // A replay whose dedup claim failed to release leaves the claim LIVE; the
+  // queue's next attempt (10 s backoff) would find it held and skip the replay,
+  // completing the job with the event undelivered. Hold THIS job open past the
+  // claim's TTL instead: the retry then re-takes the stale claim (dedup.ts
+  // re-takes an expired one) and actually runs the event.
+  let claimsStale = false;
   const outcome = await runWebhookWork(
     'slack-event-redelivery',
     () => (inbound ? processByoEventCallback(envelope, inbound) : processOauthEventCallback(envelope)),
-    { ackWaitMs: SLACK_REDELIVERY_WAIT_MS, awaitSettlement: true },
+    {
+      ackWaitMs: SLACK_REDELIVERY_WAIT_MS,
+      awaitSettlement: true,
+      onFailure: (info) => {
+        claimsStale = !info.claimsReleased;
+      },
+    },
   );
-  if (outcome === 'failed') throw new Error('slack event redelivery failed — the job queue retries it with backoff');
+  if (outcome === 'failed') {
+    if (claimsStale) await Bun.sleep(EVENT_DEDUPE_TTL_MS + 60_000);
+    throw new Error('slack event redelivery failed — the job queue retries it with backoff');
+  }
 }
 
 registerEventConsumer('slack.', redeliverSlackEvent, { visibilityMs: SLACK_REDELIVERY_VISIBILITY_MS });
@@ -352,7 +367,8 @@ export function registerSlackWebhookRoutes(): void {
       // retry a 2xx, and releasing the claim alone schedules nothing).
       const outcome = await runWebhookWork('slack-oauth-event', () => processOauthEventCallback(envelope), {
         ackWaitMs: EVENT_ACK_WAIT_MS,
-        onLost: ({ claimsReleased }) => enqueueSlackEventRedelivery(envelope, undefined, { claimsReleased }),
+        onFailure: (info) =>
+          info.acked ? enqueueSlackEventRedelivery(envelope, undefined, { claimsReleased: info.claimsReleased }) : undefined,
       });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
 
@@ -482,7 +498,8 @@ export function registerSlackWebhookRoutes(): void {
       // failure is enqueued for durable redelivery (see the canonical route).
       const outcome = await runWebhookWork('slack-byo-event', () => processByoEventCallback(envelope, inbound), {
         ackWaitMs: EVENT_ACK_WAIT_MS,
-        onLost: ({ claimsReleased }) => enqueueSlackEventRedelivery(envelope, inbound, { claimsReleased }),
+        onFailure: (info) =>
+          info.acked ? enqueueSlackEventRedelivery(envelope, inbound, { claimsReleased: info.claimsReleased }) : undefined,
       });
       if (outcome === 'failed') return c.json({ error: 'processing failed' }, 500);
       return c.json({ ok: true });

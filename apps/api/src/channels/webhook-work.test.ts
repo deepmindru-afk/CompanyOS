@@ -187,33 +187,33 @@ describe('runWebhookWork', () => {
 
   test('a failure after the ack schedules the redelivery; a fast failure does not', async () => {
     let fail!: () => void;
-    const lost: number[] = [];
+    const ackedFlags: boolean[] = [];
     const outcome = await runWebhookWork(
       't',
       async () => {
         await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
       },
-      { ackWaitMs: 20, onLost: () => void lost.push(1) },
+      { ackWaitMs: 20, onFailure: (info) => void ackedFlags.push(info.acked) },
     );
     expect(outcome).toBe('pending'); // the ack went out; the provider will not retry
     fail();
     await Bun.sleep(30);
-    expect(lost).toHaveLength(1);
+    expect(ackedFlags).toEqual([true]); // the route enqueues the redelivery on this one
 
-    const fastLost: number[] = [];
+    const fastAcked: boolean[] = [];
     const fast = await runWebhookWork(
       't2',
       async () => {
         throw new Error('fast');
       },
-      { ackWaitMs: 500, onLost: () => void fastLost.push(1) },
+      { ackWaitMs: 500, onFailure: (info) => void fastAcked.push(info.acked) },
     );
     expect(fast).toBe('failed'); // answered 500: Slack's retry is the redelivery
-    expect(fastLost).toHaveLength(0);
+    expect(fastAcked).toEqual([false]); // the route does not enqueue; it answers 500
   });
 
   test('awaitSettlement holds the caller until the work settles', async () => {
-    const lost: number[] = [];
+    const lost: boolean[] = [];
     const done = await runWebhookWork('t', async () => {
       await Bun.sleep(60);
     }, { ackWaitMs: 20, awaitSettlement: true });
@@ -224,27 +224,28 @@ describe('runWebhookWork', () => {
         await Bun.sleep(60);
         throw new Error('late');
       },
-      { ackWaitMs: 20, awaitSettlement: true, onLost: () => void lost.push(1) },
+      { ackWaitMs: 20, awaitSettlement: true, onFailure: (info) => void lost.push(info.acked) },
     );
     expect(outcome).toBe('failed'); // the caller sees the settled outcome, not 'pending'
-    expect(lost).toHaveLength(1);
+    expect(lost).toEqual([true]);
   });
 
   test('the redelivery scheduler learns whether the dedup claim released', async () => {
     let fail!: () => void;
-    const lost: Array<{ claimsReleased: boolean }> = [];
+    const lost: Array<{ acked: boolean; claimsReleased: boolean }> = [];
     const outcome = await runWebhookWork(
       't',
       async () => {
         recordClaim('slack:event:release-ok');
         await new Promise<void>((_, reject) => (fail = () => reject(new Error('late'))));
       },
-      { ackWaitMs: 20, onLost: (info) => void lost.push({ ...info }) },
+      { ackWaitMs: 20, onFailure: (info) => void lost.push({ ...info }) },
     );
     expect(outcome).toBe('pending');
     fail();
     await Bun.sleep(30);
     expect(deleted.length).toBe(1);
+    expect(lost[0]?.acked).toBe(true);
     expect(lost[0]?.claimsReleased).toBe(true);
 
     let fail2!: () => void;
@@ -254,7 +255,7 @@ describe('runWebhookWork', () => {
         recordClaim('slack:event:release-failed');
         await new Promise<void>((_, reject) => (fail2 = () => reject(new Error('late'))));
       },
-      { ackWaitMs: 20, onLost: (info) => void lost.push({ ...info }) },
+      { ackWaitMs: 20, onFailure: (info) => void lost.push({ ...info }) },
     );
     expect(outcome2).toBe('pending');
     deleteFails = true;
@@ -272,7 +273,7 @@ describe('runWebhookWork', () => {
       },
       {
         ackWaitMs: 20,
-        onLost: () => {
+        onFailure: () => {
           throw new Error('enqueue down');
         },
       },

@@ -21,10 +21,13 @@
  *
  * A failure that lands AFTER the ack went out is different from one before it:
  * the provider got its 2xx and will not redeliver, so releasing the claim alone
- * loses the event. A route that needs the event to survive passes `onLost` —
- * the Slack event routes use it to enqueue a durable redelivery on the job
- * queue (integrations/event-inbox.ts machinery); interactivity and Teams keep
- * their 500-retry window and pass nothing.
+ * loses the event. A route that needs the event to survive passes `onFailure`
+ * and checks `acked` — the Slack event routes use it to enqueue a durable
+ * redelivery on the job queue (integrations/event-inbox.ts machinery);
+ * interactivity and Teams keep their 500-retry window and pass nothing.
+ * `claimsReleased` says whether the dedup claim actually freed: when it did
+ * not, a replay scheduled now would find the claim held and skip, so the
+ * scheduler must wait the claim out first.
  *
  * A background caller that must not complete while the work runs (the redelivery
  * job: a completed job is never retried) passes `awaitSettlement`: the budget
@@ -97,7 +100,12 @@ function stageFields(): Record<string, number> {
 export async function runWebhookWork(
   label: string,
   work: () => Promise<void>,
-  options: { ackWaitMs?: number; releaseOnFailure?: boolean; onLost?: (info: { claimsReleased: boolean }) => Promise<void> | void; awaitSettlement?: boolean } = {},
+  options: {
+    ackWaitMs?: number;
+    releaseOnFailure?: boolean;
+    onFailure?: (info: { acked: boolean; claimsReleased: boolean }) => Promise<void> | void;
+    awaitSettlement?: boolean;
+  } = {},
 ): Promise<WebhookOutcome> {
   const ackWaitMs = options.ackWaitMs ?? ACK_WAIT_MS;
   const startedAt = Date.now();
@@ -130,14 +138,14 @@ export async function runWebhookWork(
       if (options.releaseOnFailure !== false) {
         claimsReleased = await releaseClaims(claims);
       }
-      if (ackedAt && options.onLost) {
-        // The ack already answered 2xx — the provider will not redeliver. Let
-        // the route schedule a redelivery; `claimsReleased` tells it whether a
-        // held dedup claim still needs to time out first. A failed schedule is
+      if (options.onFailure) {
+        // The scheduler decides what a failure means: post-ack it is a lost
+        // event (enqueue a redelivery); a held claim (the release failed)
+        // means any replay scheduled now would skip. A failed schedule is
         // loud, never fatal.
         trackDetached(
           Promise.resolve()
-            .then(() => options.onLost?.({ claimsReleased }))
+            .then(() => options.onFailure?.({ acked: Boolean(ackedAt), claimsReleased }))
             .catch((err) =>
               logger.error('[webhook-work] redelivery scheduling failed', {
                 label,
