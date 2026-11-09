@@ -176,7 +176,9 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       // on (billing/routes/payments.ts). Reporting the stored tier's answer
       // here while the route enforced the resolved one would show a trialing
       // account a buy button the server rejects, or hide one it accepts.
-      can_purchase_credits: isAdmin ? true : resolved.entitlements.canPurchaseCredits,
+      // Not widened for admins: the purchase and auto top-up routes gate on the
+      // resolved entitlement, so reporting `true` would show buttons that 400.
+      can_purchase_credits: resolved.entitlements.canPurchaseCredits,
     },
     tier: {
       // RESOLVED: what the account behaves as, so this matches what every gate
@@ -186,7 +188,9 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       // STORED: `monthly_credits` is the recurring GRANT, which Stripe owns.
       // 0 on a Free workspace that gets no free credits.
       monthly_credits: monthlyUsd ?? (freeEligible ? tier.monthlyCredits : 0),
-      can_purchase_credits: isAdmin ? true : resolved.entitlements.canPurchaseCredits,
+      // Not widened for admins: the purchase and auto top-up routes gate on the
+      // resolved entitlement, so reporting `true` would show buttons that 400.
+      can_purchase_credits: resolved.entitlements.canPurchaseCredits,
       entitlements,
     },
     enterprise_license_available: config.ENTERPRISE_LICENSE_AVAILABLE,

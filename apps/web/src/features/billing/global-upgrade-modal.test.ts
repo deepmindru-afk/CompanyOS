@@ -16,6 +16,14 @@ describe('billingModalLayout', () => {
     expect(billingModalLayout({ needsTopUp: false, hasSubscription: true, canPurchaseCredits: true })).toBe('plan-first');
   });
 
+  // One-off top-ups are off below Enterprise (2026-11-09). A subscriber that
+  // runs out still gets the credit view, where the monthly plan is the way out;
+  // it must not fall back to the Free-vs-Credits plans view.
+  test('a subscriber that cannot buy one-off credits keeps the credit view', () => {
+    expect(billingModalLayout({ needsTopUp: true, hasSubscription: true, canPurchaseCredits: false })).toBe('topup-first');
+    expect(billingModalLayout({ needsTopUp: false, hasSubscription: true, canPurchaseCredits: false })).toBe('plan-first');
+  });
+
   test('an account that cannot buy credits picks a plan', () => {
     expect(billingModalLayout({ needsTopUp: false, hasSubscription: false, canPurchaseCredits: true })).toBe('plans');
     expect(billingModalLayout({ needsTopUp: true, hasSubscription: false, canPurchaseCredits: false })).toBe('plans');

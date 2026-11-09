@@ -1642,6 +1642,12 @@ const OVERRIDE_ENTITLEMENT_ROWS: {
     description:
       'Files folders and session /workspace volumes, charged in credits per GiB-hour. On for every plan; Force off waives storage charges for this account.',
   },
+  {
+    key: 'canPurchaseCredits',
+    title: 'One-off top-ups',
+    description:
+      'Buy credits once and auto top-up. Off on Free and Credits (the monthly plan is the upgrade path), on for licensed Enterprise; Force on grants them to this account.',
+  },
 ];
 
 const OVERRIDE_TRI_STATE_OPTIONS: { value: OverrideTriState; label: string }[] = [

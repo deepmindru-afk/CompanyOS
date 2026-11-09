@@ -156,13 +156,15 @@ describe('admin entitlement-override mutation contract', () => {
       'managedModels',
       'byokFee',
       'storageBilling',
+      'canPurchaseCredits',
     ]);
   });
 
   // The BYOK platform fee and volume storage billing are entitlements, on by
-  // default, that an operator can switch off (or on) per account.
-  test('ADMIN_ENTITLEMENT_OVERRIDE_KEYS ends with byokFee, then storageBilling', () => {
-    expect(ADMIN_ENTITLEMENT_OVERRIDE_KEYS.slice(-2)).toEqual(['byokFee', 'storageBilling']);
+  // default, that an operator can switch off (or on) per account. One-off
+  // credit top-ups are off below Enterprise; an operator grants them per account.
+  test('ADMIN_ENTITLEMENT_OVERRIDE_KEYS ends with byokFee, storageBilling, then canPurchaseCredits', () => {
+    expect(ADMIN_ENTITLEMENT_OVERRIDE_KEYS.slice(-3)).toEqual(['byokFee', 'storageBilling', 'canPurchaseCredits']);
   });
 
   // Merge-patch (RFC 7386): an entry sets, `null` deletes, an absent key is

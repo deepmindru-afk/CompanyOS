@@ -136,23 +136,27 @@ interface CreditTopupSectionProps {
   /** Where Stripe returns on cancel. Defaults to the current URL. */
   cancelUrl?: string;
   className?: string;
+  /**
+   * `row` (default): the segmented amount control with the action beside it,
+   * for the Billing tab and `/accounts/[id]`.
+   * `hero`: one large editable amount, preset chips under it and a full-width
+   * action, for the out-of-credits modal where buying is the only question.
+   */
+  variant?: 'row' | 'hero';
 }
 
-export function CreditTopupSection({ successUrl, cancelUrl, className }: CreditTopupSectionProps) {
+export function CreditTopupSection({ variant = 'row', ...props }: CreditTopupSectionProps) {
+  return variant === 'hero' ? <HeroTopup {...props} /> : <RowTopup {...props} />;
+}
+
+/** The Stripe checkout round-trip both layouts share. */
+function useCreditPurchase({ successUrl, cancelUrl }: { successUrl?: string; cancelUrl?: string }) {
   const t = useTranslations('billing.topup');
-  const locale = useLocale();
   const billingAccountId = useBillingAccountId();
   const billingReturnUrl = useBillingReturnUrl();
-  // The sliding indicator is a shared layout animation. Two of these can be
-  // mounted at once (the Billing tab behind the out-of-credits modal), and a
-  // duplicate `layoutId` would make one instance's indicator fly across the
-  // screen to the other's cell.
-  const indicatorId = `credit-topup-${useId()}`;
-  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
-  const [customValue, setCustomValue] = useState('');
-  const [isCustom, setIsCustom] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const purchasingRef = useRef(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   // Back from Stripe restores this page from the back/forward cache with the
   // button still "processing": open it again.
   useEffect(() => {
@@ -164,40 +168,11 @@ export function CreditTopupSection({ successUrl, cancelUrl, className }: CreditT
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
   }, []);
-  const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
-  // The dollar amount that would actually be charged. Custom wins when the
-  // custom cell is active; otherwise the selected preset.
-  const amount = useMemo(() => {
-    if (isCustom) {
-      const parsed = Number.parseFloat(customValue);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    return selectedPrice;
-  }, [isCustom, customValue, selectedPrice]);
-
-  const { canBuy, hint, actionLabel } = describeTopup(amount, isPurchasing, {
-    minimum: (value) => t('minimum', { amount: value }),
-    contactSales: (value) => t('contactSales', { amount: value }),
-    creditHint: (credits) => t('creditHint', { credits }),
-    creditHintBonus: (credits, bonus) => t('creditHintBonus', { credits, bonus }),
-    noExpiry: t('noExpiry'),
-    processing: t('processing'),
-    addAmount: (value) => t('addAmount', { amount: value }),
-    addCredits: t('addCredits'),
-    locale,
-  });
-
-  const select = (price: number) => {
-    setSelectedPrice(price);
-    setIsCustom(false);
-    setPurchaseError(null);
-  };
-
-  const handlePurchase = async () => {
+  const purchase = async (amount: number) => {
     // Synchronous guard: a second click before the re-render made a second
     // Stripe Checkout Session.
-    if (amount === null || !canBuy || purchasingRef.current) return;
+    if (purchasingRef.current) return;
     purchasingRef.current = true;
     setIsPurchasing(true);
     setPurchaseError(null);
@@ -226,6 +201,167 @@ export function CreditTopupSection({ successUrl, cancelUrl, className }: CreditT
     }
   };
 
+  return { isPurchasing, purchaseError, setPurchaseError, purchase };
+}
+
+function useTopupCopy(): TopupCopy {
+  const t = useTranslations('billing.topup');
+  const locale = useLocale();
+  return {
+    minimum: (value) => t('minimum', { amount: value }),
+    contactSales: (value) => t('contactSales', { amount: value }),
+    creditHint: (credits) => t('creditHint', { credits }),
+    creditHintBonus: (credits, bonus) => t('creditHintBonus', { credits, bonus }),
+    noExpiry: t('noExpiry'),
+    processing: t('processing'),
+    addAmount: (value) => t('addAmount', { amount: value }),
+    addCredits: t('addCredits'),
+    locale,
+  };
+}
+
+/** The hero layout's starting amount: the first preset on the bonus ladder. */
+const HERO_DEFAULT_USD = 100;
+
+/**
+ * One large editable amount. The number IS the input: type any amount, or
+ * pick a preset chip under it. The action is full width and names the charge.
+ */
+function HeroTopup({ successUrl, cancelUrl, className }: Omit<CreditTopupSectionProps, 'variant'>) {
+  const t = useTranslations('billing.topup');
+  const locale = useLocale();
+  const copy = useTopupCopy();
+  const { isPurchasing, purchaseError, setPurchaseError, purchase } = useCreditPurchase({
+    successUrl,
+    cancelUrl,
+  });
+  const [value, setValue] = useState(String(HERO_DEFAULT_USD));
+  const parsed = Number.parseFloat(value);
+  const amount = Number.isFinite(parsed) ? parsed : null;
+  const { canBuy, hint, actionLabel } = describeTopup(amount, isPurchasing, copy);
+  const inputId = useId();
+
+  return (
+    <div className={cn('flex flex-col items-center gap-4', className)}>
+      <label htmlFor={inputId} className="sr-only">
+        {t('customAmount')}
+      </label>
+      {/* Off the app-chrome ladder (text-2xl) on purpose: the amount is the one
+          decision in this modal and Jay picked the large-number design
+          (Paper "Out of credits" variant 02). */}
+      <div className="text-foreground focus-within:ring-kortix-base flex items-baseline justify-center rounded-md px-2 text-5xl font-medium tracking-tight tabular-nums focus-within:ring-[0.6px]">
+        <span aria-hidden>$</span>
+        <input
+          id={inputId}
+          type="number"
+          inputMode="numeric"
+          min={CUSTOM_MIN_USD}
+          max={CUSTOM_MAX_USD}
+          step={1}
+          value={value}
+          disabled={isPurchasing}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setPurchaseError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canBuy && amount !== null) void purchase(amount);
+          }}
+          // The field is as wide as its digits, so the number stays centred.
+          // Capped at 7ch: a pasted long number scrolls inside the field
+          // instead of pushing past the modal (validation still rejects it).
+          style={{ width: `${Math.min(Math.max(value.length, 1), 7)}ch` }}
+          className="placeholder:text-muted-foreground caret-kortix-base [appearance:textfield] bg-transparent text-left outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+      </div>
+
+      {/* Shortcuts that fill the amount, not a choice group: toggle buttons. */}
+      <div role="group" aria-label={t('amountGroup')} className="flex flex-wrap justify-center gap-1.5">
+        {CREDIT_PRESETS.map((price) => {
+          const selected = amount === price;
+          return (
+            <button
+              key={price}
+              type="button"
+              aria-pressed={selected}
+              disabled={isPurchasing}
+              onClick={() => {
+                setValue(String(price));
+                setPurchaseError(null);
+              }}
+              className={cn(
+                'h-7 cursor-pointer rounded-md border px-3 text-xs font-medium tabular-nums',
+                'duration-fast transition-colors motion-safe:active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50',
+                'focus-visible:ring-kortix-base focus-visible:ring-[0.6px] focus-visible:outline-none',
+                selected ? 'bg-active text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-hover',
+              )}
+            >
+              {formatWholeUsd(price, locale)}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-muted-foreground text-center text-xs tabular-nums">{hint}</p>
+
+      <Button
+        onClick={() => canBuy && amount !== null && void purchase(amount)}
+        disabled={!canBuy}
+        size="lg"
+        className="w-full gap-1.5 motion-safe:active:scale-[0.96]"
+      >
+        {isPurchasing ? <Loading className="size-3.5 shrink-0" /> : null}
+        {actionLabel}
+      </Button>
+
+      {purchaseError && (
+        <BannerAlert variant="destructive" className="w-full">
+          <BannerAlertDescription>{purchaseError}</BannerAlertDescription>
+        </BannerAlert>
+      )}
+    </div>
+  );
+}
+
+function RowTopup({ successUrl, cancelUrl, className }: Omit<CreditTopupSectionProps, 'variant'>) {
+  const t = useTranslations('billing.topup');
+  const locale = useLocale();
+  // The sliding indicator is a shared layout animation. Two of these can be
+  // mounted at once (the Billing tab behind the out-of-credits modal), and a
+  // duplicate `layoutId` would make one instance's indicator fly across the
+  // screen to the other's cell.
+  const indicatorId = `credit-topup-${useId()}`;
+  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
+  const [customValue, setCustomValue] = useState('');
+  const [isCustom, setIsCustom] = useState(false);
+  const copy = useTopupCopy();
+  const { isPurchasing, purchaseError, setPurchaseError, purchase } = useCreditPurchase({
+    successUrl,
+    cancelUrl,
+  });
+
+  // The dollar amount that would actually be charged. Custom wins when the
+  // custom cell is active; otherwise the selected preset.
+  const amount = useMemo(() => {
+    if (isCustom) {
+      const parsed = Number.parseFloat(customValue);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return selectedPrice;
+  }, [isCustom, customValue, selectedPrice]);
+
+  const { canBuy, hint, actionLabel } = describeTopup(amount, isPurchasing, copy);
+
+  const select = (price: number) => {
+    setSelectedPrice(price);
+    setIsCustom(false);
+    setPurchaseError(null);
+  };
+
+  const handlePurchase = async () => {
+    if (amount === null || !canBuy) return;
+    await purchase(amount);
+  };
   return (
     <div className={cn('space-y-2.5', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -276,7 +412,7 @@ export function CreditTopupSection({ successUrl, cancelUrl, className }: CreditT
                   setCustomValue(e.target.value);
                   setPurchaseError(null);
                 }}
-                className="text-foreground placeholder:text-muted-foreground/60 relative z-10 h-7 w-[4.5rem] [appearance:textfield] bg-transparent pr-2 pl-5 text-xs font-medium tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                className="text-foreground placeholder:text-muted-foreground relative z-10 h-7 w-[4.5rem] [appearance:textfield] bg-transparent pr-2 pl-5 text-xs font-medium tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               />
             </div>
           ) : (

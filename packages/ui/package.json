@@ -433,6 +433,7 @@
     "./session-panel": "./src/session/panel/index.ts",
     "./session/actions/session-label": "./src/session/actions/session-label.ts",
     "./session/composer/attachment-tiles": "./src/session/composer/attachment-tiles.tsx",
+    "./session/models/ask-owner-for-credits-button": "./src/session/models/ask-owner-for-credits-button.tsx",
     "./session/composer/composer-agent-access": "./src/session/composer/composer-agent-access.ts",
     "./session/composer/composer-chat-input": "./src/session/composer/composer-chat-input.tsx",
     "./session/composer/composer-draft-recovery": "./src/session/composer/composer-draft-recovery.ts",

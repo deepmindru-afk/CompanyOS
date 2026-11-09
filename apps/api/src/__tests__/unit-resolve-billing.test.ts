@@ -279,3 +279,28 @@ describe('Enterprise is a feature layer: off, demo, licensed', () => {
     expect(r.source).toBe('stored');
   });
 });
+
+// Marko, 2026-11-09: no one-off credit top-ups below Enterprise, so the monthly
+// plan is the upgrade path. Licensed Enterprise keeps them, and an operator
+// grants them to one account through `entitlement_overrides.canPurchaseCredits`.
+describe('one-off credit top-ups', () => {
+  test('Free and Credits cannot buy one-off credits', () => {
+    expect(resolveBillingFromRow({ tier: 'free' }, NOW).entitlements.canPurchaseCredits).toBe(false);
+    expect(resolveBillingFromRow({ tier: 'credits', ...LIVE_SUB }, NOW).entitlements.canPurchaseCredits).toBe(false);
+  });
+
+  test('licensed Enterprise can; the demo cannot', () => {
+    expect(resolveBillingFromRow({ tier: 'credits', enterpriseEntitled: true }, NOW).entitlements.canPurchaseCredits).toBe(true);
+    expect(resolveBillingFromRow({ tier: 'credits', demoEnterprise: true }, NOW).entitlements.canPurchaseCredits).toBe(false);
+  });
+
+  test('an operator grant turns them on for one account, until it expires', () => {
+    const granted = { tier: 'credits', entitlementOverrides: { canPurchaseCredits: { value: true } } };
+    expect(resolveBillingFromRow(granted, NOW).entitlements.canPurchaseCredits).toBe(true);
+    const expired = {
+      tier: 'credits',
+      entitlementOverrides: { canPurchaseCredits: { value: true, expires_at: iso(-HOUR) } },
+    };
+    expect(resolveBillingFromRow(expired, NOW).entitlements.canPurchaseCredits).toBe(false);
+  });
+});

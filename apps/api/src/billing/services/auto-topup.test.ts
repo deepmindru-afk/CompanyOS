@@ -120,6 +120,9 @@ function creditAccount(overrides: Record<string, unknown> = {}) {
   return {
     accountId: 'acct-1',
     tier: 'credits',
+    // One-off top-ups (and so auto top-up) are off on Credits by default
+    // (plan-catalog.ts); these cases exercise an account an operator granted.
+    entitlementOverrides: { canPurchaseCredits: { value: true } },
     balance: '0.01',
     autoTopupEnabled: true,
     autoTopupThreshold: '5',
@@ -315,6 +318,18 @@ describe('auto-topup on an asynchronous payment method', () => {
     await checkAndTriggerAutoTopup('acct-1');
 
     expect(paymentIntents).toHaveLength(1);
+  });
+
+  // One-off top-ups are off on Credits (the monthly plan is the upgrade path).
+  // A setting saved before that change must never charge.
+  test('a Credits account without the top-up grant is never charged', async () => {
+    account = creditAccount({ entitlementOverrides: {} });
+
+    await checkAndTriggerAutoTopup('acct-1');
+
+    expect(claims).toEqual([]);
+    expect(paymentIntents).toHaveLength(0);
+    expect(grants).toHaveLength(0);
   });
 
   test('when pending payments cannot be listed, the trigger charges nothing', async () => {

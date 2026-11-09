@@ -200,7 +200,19 @@ describe('invariants', () => {
   test('OVERRIDE_KEYS is the complete, de-duplicated key set', () => {
     expect(new Set(OVERRIDE_KEYS).size).toBe(OVERRIDE_KEYS.length);
     expect([...OVERRIDE_KEYS].sort() as string[]).toEqual(
-      ['auditAccess', 'branding', 'byokFee', 'driveAccountBytes', 'driveProjectBytes', 'managedModels', 'rbac', 'scim', 'sso', 'storageBilling'].sort(),
+      [
+        'auditAccess',
+        'branding',
+        'byokFee',
+        'canPurchaseCredits',
+        'driveAccountBytes',
+        'driveProjectBytes',
+        'managedModels',
+        'rbac',
+        'scim',
+        'sso',
+        'storageBilling',
+      ].sort(),
     );
   });
 });

@@ -1,13 +1,14 @@
 'use client';
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@kortix/ui/collapsible';
 import { AutoTopupCard } from '@/features/billing/auto-topup-card';
-import { formatWholeUsd } from '@kortix/ui/internal/billing/compute-pricing';
 import { CreditTopupSection } from '@/features/billing/credit-topup-section';
 import { RedeemCodeForm } from '@/features/billing/redeem-code-form';
 import { useLocale, useTranslations } from '@/i18n/use-translations';
 import { type AccountState, canOfferTopup } from '@kortix/sdk';
 import { formatUsdAsCredits } from '@kortix/shared';
+import { cn } from '@kortix/ui';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@kortix/ui/collapsible';
+import { formatWholeUsd } from '@kortix/ui/internal/billing/compute-pricing';
 import { CaretRightIcon } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
@@ -30,10 +31,18 @@ export function TopupControls({
   state,
   heading,
   fallback = null,
+  variant = 'card',
 }: {
   state: AccountState | null | undefined;
   heading?: ReactNode;
   fallback?: ReactNode;
+  /**
+   * `card` (default): a bordered panel, for settings and Billing.
+   * `hero`: no panel. The large amount leads and the auto top-up and code rows
+   * run edge to edge under it; the host (the out-of-credits modal) owns the
+   * surface and its padding.
+   */
+  variant?: 'card' | 'hero';
 }) {
   const t = useTranslations('billing.topup');
   const tRedeem = useTranslations('billing.redeem');
@@ -48,33 +57,45 @@ export function TopupControls({
         threshold: formatUsdAsCredits(auto.threshold, { locale }),
       })
     : t('autoTopupOff');
+  const hero = variant === 'hero';
+  const inset = hero ? 'px-6' : 'px-4';
   return (
-    <div className="bg-popover rounded-md border">
-      <section className="space-y-3 px-4 py-4">
+    <div className={hero ? undefined : 'bg-popover rounded-md border'}>
+      <section className={hero ? 'px-6 pt-2 pb-6' : 'space-y-3 px-4 py-4'}>
         {heading ? <h3 className="text-foreground text-sm font-medium">{heading}</h3> : null}
-        <CreditTopupSection />
+        <CreditTopupSection variant={hero ? 'hero' : 'row'} />
       </section>
       <Collapsible className="group/auto border-t">
-        <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-kortix-base flex w-full cursor-pointer items-center gap-1.5 px-4 py-3 text-left text-xs transition-colors outline-none focus-visible:ring-[0.6px]">
+        <CollapsibleTrigger
+          className={cn(
+            'text-muted-foreground hover:text-foreground focus-visible:ring-kortix-base flex w-full cursor-pointer items-center gap-1.5 py-3 text-left text-xs transition-colors outline-none focus-visible:ring-[0.6px]',
+            inset,
+          )}
+        >
           <CaretRightIcon
             aria-hidden
             className="size-3 shrink-0 transition-transform group-data-[state=open]/auto:rotate-90"
           />
           <span className="truncate">{status}</span>
         </CollapsibleTrigger>
-        <CollapsibleContent className="px-4 pb-4">
+        <CollapsibleContent className={cn(inset, 'pb-4')}>
           <AutoTopupCard fetchSettings showSaveButton />
         </CollapsibleContent>
       </Collapsible>
       <Collapsible className="group/redeem border-t">
-        <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-kortix-base flex w-full cursor-pointer items-center gap-1.5 px-4 py-3 text-left text-xs transition-colors outline-none focus-visible:ring-[0.6px]">
+        <CollapsibleTrigger
+          className={cn(
+            'text-muted-foreground hover:text-foreground focus-visible:ring-kortix-base flex w-full cursor-pointer items-center gap-1.5 py-3 text-left text-xs transition-colors outline-none focus-visible:ring-[0.6px]',
+            inset,
+          )}
+        >
           <CaretRightIcon
             aria-hidden
             className="size-3 shrink-0 transition-transform group-data-[state=open]/redeem:rotate-90"
           />
           <span className="truncate">{tRedeem('toggle')}</span>
         </CollapsibleTrigger>
-        <CollapsibleContent className="px-4 pb-4">
+        <CollapsibleContent className={cn(inset, 'pb-4')}>
           <RedeemCodeForm autoFocus />
         </CollapsibleContent>
       </Collapsible>

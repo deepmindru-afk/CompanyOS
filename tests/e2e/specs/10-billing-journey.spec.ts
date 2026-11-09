@@ -154,7 +154,7 @@ test.describe
       await expect(page.getByRole('button', { name: 'Subscribe for $100 / month' })).toBeVisible();
     });
 
-    test('an owner starts checkout, reads the active plan, buys credits, and opens billing management', async ({
+    test('an owner starts checkout, reads the active plan, cannot buy one-off credits, and opens billing management', async ({
       page,
     }) => {
       // The account hub is a modal over a page, not a route (2026-09-08), so
@@ -212,34 +212,15 @@ test.describe
         await expect(page.getByText(/^Renews /).first()).toBeVisible();
       });
 
-      await test.step('The owner starts a one-time credit purchase', async () => {
-        // `credit-topup-section.tsx` replaced the old amount+credits buttons
-        // with a radiogroup of preset amounts. `AmountCell` is a `<button>`
-        // carrying an explicit `role="radio"` (`:260-263`), and an explicit
-        // role wins, so `getByRole('button', …)` can no longer see it. The
-        // cell's whole accessible name is now just the amount (`:175`).
-        const topup = page.getByRole('radiogroup', { name: 'Top-up amount' });
-        // Presets are $25, $100, $250 and $1,000 since the credits-only plan (#9814).
-        await topup.getByRole('radio', { name: '$25', exact: true }).click();
-        const purchase = await captureJsonPost<CheckoutResult>(
-          page,
-          '**/v1/billing/purchase-credits',
-        );
-        // The CTA is `actionLabel` in `credit-topup-section.tsx`: "Add $25" once
-        // an amount is chosen, "Add credits" before that.
-        await page.getByRole('button', { name: 'Add $25', exact: true }).click();
-        await expect.poll(() => purchase.status, { timeout: 45_000 }).toBe(200);
-        expect(purchase.requestBody).toMatchObject({
-          account_id: accountId,
-          amount: 25,
-        });
-        expectStripeUrl(
-          purchase.body?.checkout_url,
-          STRIPE_CHECKOUT_HOSTS,
-          /^\/c\/pay\/cs_(test|live)_/,
-        );
-        await leftForStripeCheckout(page);
-        await page.unroute('**/v1/billing/purchase-credits');
+      await test.step('A Credits subscriber is offered no one-off top-up, and the API refuses one', async () => {
+        // One-off top-ups are off below Enterprise (2026-11-09): the monthly
+        // plan is the upgrade path. `TopupControls` renders nothing when
+        // `canOfferTopup` is false, so the amount group is absent; the purchase
+        // route answers the resolved entitlement with a 400 BillingError.
+        await expect(page.getByRole('group', { name: 'Top-up amount' })).toHaveCount(0);
+        await expect(page.getByRole('radiogroup', { name: 'Top-up amount' })).toHaveCount(0);
+        const owner = new Client(apiBase).withBearer(session.access_token, 'BROWSER_OWNER');
+        await owner.post('/v1/billing/purchase-credits', { account_id: accountId, amount: 25 }).then((r) => r.status(400));
       });
 
       await test.step('The owner opens Stripe Billing Portal for lifecycle actions', async () => {

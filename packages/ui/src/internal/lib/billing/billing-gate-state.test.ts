@@ -142,7 +142,7 @@ describe('billingGateCopy — the gate never contradicts the modal it opens', ()
   test('out_of_credits pitches a top-up and opens the top-up modal', () => {
     const copy = billingGateCopy('out_of_credits', testUiTranslator);
     expect(copy.title).toBe('Out of credits');
-    expect(copy.ctaLabel).toBe('Top up credits');
+    expect(copy.ctaLabel).toBe('Add credits');
     expect(copy.dialogReason).toBe('insufficient_credits');
     expect(copy.message).not.toContain('isn’t on a plan');
   });

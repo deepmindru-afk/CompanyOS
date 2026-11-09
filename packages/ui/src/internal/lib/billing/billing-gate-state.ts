@@ -267,7 +267,7 @@ export function billingGateCopy(
       return {
         title: tI18nComplete.raw('textf1c24ec92034'),
         message: tI18nComplete.raw('text6821e42be2c1'),
-        ctaLabel: 'Top up credits',
+        ctaLabel: 'Add credits',
         dialogReason: 'insufficient_credits',
       };
     case 'payment_failed':

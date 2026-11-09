@@ -22,6 +22,17 @@ describe('billing returns', () => {
     expect(BILLING_RETURNS.map((r) => r.param).sort()).toEqual(['credit_purchase', 'enterprise_contract', 'team_signup']);
   });
 
+  test('a one-time top-up answers with the receipt dialog; the rest keep the toast', () => {
+    // The receipt shows the new balance and the way back to work. A plan or a
+    // contract activation has no single number to report, so it stays a toast.
+    const acks = Object.fromEntries(BILLING_RETURNS.map((r) => [r.param, r.ack ?? 'toast']));
+    expect(acks).toEqual({
+      credit_purchase: 'dialog',
+      enterprise_contract: 'toast',
+      team_signup: 'toast',
+    });
+  });
+
   test('every return has user-facing copy and a settle step', () => {
     for (const entry of BILLING_RETURNS) {
       expect({ param: entry.param, ok: entry.title.length > 0 }).toEqual({

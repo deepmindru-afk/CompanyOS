@@ -93,27 +93,32 @@ export const PLAN_CATALOG: Record<string, PlanRecord> = {
     displayName: 'No Plan',
   },
 
-  // $5 (500 credits) a month and top-ups, for compute and the user's own
-  // provider keys or ChatGPT subscription. Never the Kortix-managed models:
-  // the gateway refuses them for every account without `managedModels`.
+  // $5 (500 credits) a month, for compute and the user's own provider keys or
+  // ChatGPT subscription. Never the Kortix-managed models: the gateway refuses
+  // them for every account without `managedModels`. No one-off top-ups: more
+  // credits come from the monthly Credits plan (`canPurchaseCredits` below).
   free: {
     key: 'free',
     family: 'free',
     status: 'current',
     shape: 'none',
     rank: 1,
-    entitlements: { ...NO_ENTERPRISE, managedModels: false, canPurchaseCredits: true, byokFee: true, storageBilling: true },
+    entitlements: { ...NO_ENTERPRISE, managedModels: false, canPurchaseCredits: false, byokFee: true, storageBilling: true },
     limits: { llmRateMultiplier: 0 },
     displayName: 'Free',
   },
 
+  // One-off top-ups are off here (Marko, 2026-11-09): the way to more credits
+  // is a higher monthly tier, so the subscription is the clear upgrade path.
+  // Licensed Enterprise keeps them, and `entitlement_overrides.canPurchaseCredits`
+  // turns them on for one account.
   credits: {
     key: 'credits',
     family: 'credits',
     status: 'current',
     shape: 'credits',
     rank: 2,
-    entitlements: { ...NO_ENTERPRISE, managedModels: true, canPurchaseCredits: true, byokFee: true, storageBilling: true },
+    entitlements: { ...NO_ENTERPRISE, managedModels: true, canPurchaseCredits: false, byokFee: true, storageBilling: true },
     limits: { llmRateMultiplier: 12 },
     displayName: 'Credits',
   },

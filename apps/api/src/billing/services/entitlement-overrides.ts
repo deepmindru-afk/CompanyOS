@@ -46,6 +46,8 @@ export interface EntitlementOverrides {
   driveAccountBytes?: OverrideEntry<number>;
   /** Volume storage billing (storage-charges.ts): off waives storage charges for the account. */
   storageBilling?: OverrideEntry<boolean>;
+  /** One-off credit top-ups and auto top-up (payments.ts, auto-topup.ts): on grants them below Enterprise. */
+  canPurchaseCredits?: OverrideEntry<boolean>;
 }
 
 export type OverrideKey = keyof EntitlementOverrides;
@@ -63,6 +65,9 @@ export const ENTITLEMENT_OVERRIDE_KEYS = [
   'managedModels',
   'byokFee',
   'storageBilling',
+  // One-off credit top-ups and auto top-up, off below Enterprise. An operator
+  // grants them to one account here.
+  'canPurchaseCredits',
 ] as const;
 
 /** The numeric limits, each a positive whole number of bytes, read by the limit that owns it. */

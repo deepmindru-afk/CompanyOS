@@ -38,7 +38,7 @@ export async function alertWalletAtZero(accountId: string, balance: number): Pro
 
   const account = await getCreditAccount(accountId);
   if (!account || account.autoTopupEnabled) return 0;
-  const { plan } = await resolveAccountBilling(accountId, { row: account });
+  const { plan, entitlements } = await resolveAccountBilling(accountId, { row: account });
   if (!isPaidTier(plan.key)) return 0;
   const claimed = await db
     .insert(chatEventDedup)
@@ -51,7 +51,11 @@ export async function alertWalletAtZero(accountId: string, balance: number): Pro
   const url = billingPaneUrl(accountId);
   const title = 'Out of credits';
   const stopped = 'Agents pause, and triggers stop starting sessions, until credits are added.';
-  const note = 'Buy credits, or turn on auto top-up so the balance refills itself.';
+  // One-off top-ups are off below Enterprise (2026-11-09): for those accounts
+  // the way back is a higher monthly tier.
+  const note = entitlements.canPurchaseCredits
+    ? 'Buy credits, or turn on auto top-up so the balance refills itself.'
+    : 'Raise your monthly credits to keep agents running. Credits are added the moment the plan changes.';
   return emailBillingManagers(accountId, (accountName) => ({
     subject: `${accountName} is out of credits`,
     category: 'billing-wallet-zero',
