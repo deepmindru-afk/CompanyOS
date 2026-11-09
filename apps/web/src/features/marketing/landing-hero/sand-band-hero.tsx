@@ -2,24 +2,9 @@
 
 import { useRequestDemo } from '@/features/contact/request-demo-provider';
 import { MarketingButton } from '@/features/marketing/kit/marketing-button';
-import {
-  CodeIcon,
-  GitForkIcon,
-  ShieldCheckIcon,
-  UsersThreeIcon,
-} from '@phosphor-icons/react/dist/ssr';
 import Link from 'next/link';
 
 import { WorkspaceFramework } from './workspace-framework';
-
-// What the CompanyOS is, beside the title (kortix-brand D35). Multiplayer,
-// Extensible and Sovereign use the glyphs of their pillars below the hero.
-const HERO_TRAITS = [
-  { label: 'Open Source', icon: GitForkIcon },
-  { label: 'Extensible', icon: CodeIcon },
-  { label: 'Multiplayer', icon: UsersThreeIcon },
-  { label: 'Sovereign', icon: ShieldCheckIcon },
-];
 
 /**
  * Landing hero, Paper "Kortix 2" Hero D (Accrue layout): the two-tone
@@ -35,17 +20,8 @@ export function SandBandHero() {
   return (
     <section id="hero" className="relative">
       <div className="relative flex flex-col gap-7.5 px-8 pt-32 pb-18 lg:px-28 lg:pt-40">
-        {/* The four traits as a quiet line above the title, then the title and
-            one sentence on what it is. */}
+        {/* The title and one sentence on what it is. */}
         <div className="flex flex-col gap-4 lg:gap-5">
-          <ul className="text-muted-foreground grid w-fit grid-cols-2 gap-x-6 gap-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-x-5">
-            {HERO_TRAITS.map(({ label, icon: Icon }) => (
-              <li key={label} className="flex items-center gap-1.5 text-sm">
-                <Icon className="size-4 shrink-0" aria-hidden />
-                {label}
-              </li>
-            ))}
-          </ul>
           <h1 className="text-foreground text-3xl font-medium tracking-tight sm:text-4xl lg:text-[44px] lg:leading-13">
             The CompanyOS
           </h1>

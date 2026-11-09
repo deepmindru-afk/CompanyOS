@@ -32,6 +32,7 @@ import {
 } from '../../../primitives/input-group';
 import Loading from '../../../primitives/loading';
 import { Popover, PopoverContent, PopoverTrigger } from '../../../primitives/popover';
+import { foreignDialogOpen } from '../../../lib/z-stack';
 import { ModelSelector, type ModelDefaultControls } from '../../models/model-selector';
 import type { SessionOverrideRow } from '../../overrides/session-overrides-control';
 import {
@@ -84,16 +85,6 @@ const MORE_ROW = '__more';
 /** The extra rows, in the order the list shows them. */
 const EXTRA_ORDER = ['connectors', 'secrets', 'provider-keys', 'sandbox'];
 
-/** An open dialog that is not this panel: the Models dialog, an accounts modal. */
-function foreignDialogOpen(panel: HTMLElement | null): boolean {
-  for (const dialog of document.querySelectorAll<HTMLElement>(
-    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
-  )) {
-    if (!panel || (dialog !== panel && !panel.contains(dialog) && !dialog.contains(panel)))
-      return true;
-  }
-  return false;
-}
 
 export type ChatInputRowId = 'agent' | 'model' | 'effort' | (string & {});
 

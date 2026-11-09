@@ -1,7 +1,9 @@
-import type { ToolPart } from '@/ui';
+import type { ToolPart } from '@kortix/sdk';
 import { toolCallBlock, type SessionLogMessage, type ToolCallBlock } from '@kortix/sdk';
 import { describe, expect, test } from 'bun:test';
-import { collectAllToolCalls, latestRunMessages, deriveRunOutcome } from '@kortix/ui/session-panel';
+import { collectAllToolCalls } from './collect-tool-parts';
+import { latestRunMessages } from './latest-run';
+import { deriveRunOutcome } from './run-outcome';
 import { groupSteps } from '@kortix/sdk';
 
 function assistant(

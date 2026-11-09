@@ -38,6 +38,11 @@ interface ModelStore {
   user: UserEntry[];
   recent: ModelKey[];
   variant: Record<string, string | undefined>;
+  /**
+   * Models the user starred in the picker, newest last. Separate from `user`
+   * (the show/hide pins): a favorite never changes what the default view shows.
+   */
+  favorites?: ModelKey[];
   /** Persisted per-agent model selection so it survives refresh/new tabs */
   selectedModel?: Record<string, ModelKey | undefined>;
   /** Per-session agent name — keyed by sessionId so each session remembers its own agent */
@@ -102,6 +107,7 @@ export function sanitizeModelStore(raw: unknown): ModelStore {
     recent: objArray<ModelKey>(raw.recent),
     variant: isObj(raw.variant) ? (raw.variant as ModelStore['variant']) : {},
   };
+  if (Array.isArray(raw.favorites)) out.favorites = objArray<ModelKey>(raw.favorites);
   if (isObj(raw.selectedModel)) out.selectedModel = raw.selectedModel as ModelStore['selectedModel'];
   if (isObj(raw.sessionAgentName)) out.sessionAgentName = raw.sessionAgentName as ModelStore['sessionAgentName'];
   if (typeof raw.lastAgentName === 'string') out.lastAgentName = raw.lastAgentName;
@@ -306,6 +312,28 @@ export function useModelStore(
     setStore({ ...s, user: [] });
   }, []);
 
+  // Favorites: the picker's starred models, per browser like the rest of this store.
+  const favoriteKeys = useMemo(
+    () => new Set((store.favorites ?? []).map((m) => `${m.providerID}:${m.modelID}`)),
+    [store.favorites],
+  );
+
+  const isFavorite = useCallback(
+    (model: ModelKey): boolean => favoriteKeys.has(`${model.providerID}:${model.modelID}`),
+    [favoriteKeys],
+  );
+
+  const setFavorite = useCallback((model: ModelKey, on: boolean) => {
+    const s = getStore();
+    const same = (m: ModelKey) => m.providerID === model.providerID && m.modelID === model.modelID;
+    const current = s.favorites ?? [];
+    if (current.some(same) === on) return;
+    const next = on
+      ? [...current, { providerID: model.providerID, modelID: model.modelID }]
+      : current.filter((m) => !same(m));
+    setStore({ ...s, favorites: next });
+  }, []);
+
   // Recent models
   const recentModels = useMemo(() => store.recent, [store.recent]);
 
@@ -408,6 +436,8 @@ export function useModelStore(
     resetVisibility,
     recent: recentModels,
     pushRecent,
+    isFavorite,
+    setFavorite,
     getVariant,
     setVariant,
     getSelectedModel,

@@ -56,6 +56,8 @@ import {
 import { modelInDefaultView } from '@kortix/sdk';
 import { isClaudeSubscriptionModel, isSubscriptionModel, pickerModelName, shouldShowFreeTag } from './model-tags';
 import { useModelConnectionGate } from './use-model-connection-gate';
+import { ModelPickerPanel } from './model-picker-panel';
+import { effortLabel, reasoningEffortChoices } from '../composer/reasoning-effort-selector';
 
 // Re-export for consumers
 export { Tag };
@@ -362,6 +364,19 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
   return <span className="text-muted-foreground font-medium tracking-wide">{children}</span>;
 }
 
+/**
+ * Thinking effort, merged into the model popover as a right-hand pane. It is
+ * the session's model variant: the same value `ReasoningEffortSelector` sets.
+ */
+export interface ModelReasoningControls {
+  /** The selected model's variant ids (`Object.keys(model.variants)`). */
+  variants: readonly string[] | undefined;
+  /** The session's current variant, or null = model default. */
+  selectedVariant: string | null | undefined;
+  /** Absent = the host cannot apply a variant: no pane, no trigger suffix. */
+  onVariantChange?: (variant: string | null) => void;
+}
+
 export interface ModelSelectorProps {
   models: FlatModel[];
   selectedModel: { providerID: string; modelID: string } | null;
@@ -401,8 +416,8 @@ export interface ModelSelectorProps {
    * the picker stayed shut, because this component's `open` was internal
    * state with no way in.
    *
-   * "Set reasoning effort" does not route here — it opens the toolbar's
-   * `ReasoningEffortSelector`, which sets the session variant.
+   * "Set reasoning effort" routes here too: the composer passes `reasoning`,
+   * so effort is the right-hand pane of this popover.
    *
    * Controlled/uncontrolled is decided by whether `open` is `undefined`, the
    * same rule Radix itself uses — so every existing call site keeps its
@@ -410,6 +425,14 @@ export interface ModelSelectorProps {
    */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+
+  /**
+   * Thinking effort in the same popover (`chip` appearance only). When the
+   * selected model publishes variants, the popover grows a right-hand pane
+   * with Auto + those levels, and the trigger names the level after the model.
+   * A model with no variants keeps the single-column popover.
+   */
+  reasoning?: ModelReasoningControls;
 }
 
 export function ModelSelector({
@@ -426,6 +449,7 @@ export function ModelSelector({
   offerProviderAccounts = false,
   open: openProp,
   onOpenChange,
+  reasoning,
 }: ModelSelectorProps) {
   const tModel = useTranslations('modelSelector');
   const tDefault = useTranslations('workspaces.models');
@@ -490,7 +514,19 @@ export function ModelSelector({
       m.providerID === availableSelectedModel?.providerID &&
       m.modelID === availableSelectedModel?.modelID,
   );
-  const displayName = current?.modelName || unsetLabel || t('noModel');
+  // The pill names the model, never its plan suffix: "GPT-6 Luna", not "GPT-6 Luna (ChatGPT)".
+  const displayName = (current && pickerModelName(current)) || unsetLabel || t('noModel');
+
+  const effortChoices =
+    appearance === 'chip'
+      ? reasoningEffortChoices(reasoning?.variants, !!reasoning?.onVariantChange)
+      : [];
+  const showEffort = effortChoices.length > 0 && !!reasoning?.onVariantChange;
+  // A stale per-model pick reads as Auto, the same rule as the pane.
+  const currentEffort =
+    reasoning?.selectedVariant && effortChoices.includes(reasoning.selectedVariant)
+      ? reasoning.selectedVariant
+      : null;
 
   useEffect(() => {
     if (!open) {
@@ -507,27 +543,41 @@ export function ModelSelector({
   // `enabled` stamping `/model-picker` gives gateway catalogs. See
   // modelInDefaultView.
   const pickerModelStore = useModelStore(models);
-  const visibleModels = useMemo(() => {
-    const q = search.toLowerCase();
-    return models
-      .filter(
-        (m) =>
-          m.enabled !== false &&
-          // Claude subscription models appear once the member signed in to Claude
-          // (Customize → Models → Anthropic), like ChatGPT subscription models.
-          !(isClaudeSubscriptionModel(m) && m.available === false) &&
-          (!q ||
-            (m.modelName || '').toLowerCase().includes(q) ||
-            (m.modelID || '').toLowerCase().includes(q) ||
-            (m.providerName || '').toLowerCase().includes(q)) &&
-          modelInDefaultView(m, {
-            search,
-            isStoreVisible: pickerModelStore.isVisible,
-            selected: selectedModel,
-          }),
-      )
-      .sort((a, b) => a.modelName.localeCompare(b.modelName));
-  }, [models, search, pickerModelStore.isVisible, selectedModel]);
+  const filterModels = useCallback(
+    (query: string) => {
+      const q = query.toLowerCase();
+      return models
+        .filter(
+          (m) =>
+            m.enabled !== false &&
+            // Claude subscription models appear once the member signed in to Claude
+            // (Customize → Models → Anthropic), like ChatGPT subscription models.
+            !(isClaudeSubscriptionModel(m) && m.available === false) &&
+            (!q ||
+              (m.modelName || '').toLowerCase().includes(q) ||
+              (m.modelID || '').toLowerCase().includes(q) ||
+              (m.providerName || '').toLowerCase().includes(q)) &&
+            modelInDefaultView(m, {
+              search: query,
+              isStoreVisible: pickerModelStore.isVisible,
+              selected: selectedModel,
+            }),
+        )
+        .sort((a, b) => a.modelName.localeCompare(b.modelName));
+    },
+    [models, pickerModelStore.isVisible, selectedModel],
+  );
+  const visibleModels = useMemo(() => filterModels(search), [filterModels, search]);
+  // The chip popover's rail and tabs read the unsearched list.
+  const browseModels = useMemo(() => filterModels(''), [filterModels]);
+  // Favorites skip the default-view curation: a starred model stays listed.
+  const pickableModels = useMemo(
+    () =>
+      models.filter(
+        (m) => m.enabled !== false && !(isClaudeSubscriptionModel(m) && m.available === false),
+      ),
+    [models],
+  );
 
   /** Is there anything to pick AT ALL, ignoring the search box? The empty
    *  state below branches on this: "no models match your search" and "you have
@@ -629,15 +679,97 @@ export function ModelSelector({
       // A Claude model signs in under Anthropic, in the provider list.
       if (connect === 'claude' || connect === 'provider') return handleOpenProviderModal('providers');
       onSelect({ providerID: model.providerID, modelID: model.modelID });
-      setOpen(false);
+      // The chip popover stays open: a model and its thinking level are set
+      // in one visit, and Escape or a click outside closes it.
+      if (appearance !== 'chip') setOpen(false);
     },
-    [onSelect, setOpen, chatGptAvailable, handleOpenChatGpt, handleOpenProviderModal],
+    [
+      onSelect,
+      setOpen,
+      chatGptAvailable,
+      handleOpenChatGpt,
+      handleOpenProviderModal,
+      appearance,
+    ],
   );
+
+  // Stays open too: the check moves, and the model list is still in reach.
+  const handleEffortChange = useCallback(
+    (variant: string | null) => reasoning?.onVariantChange?.(variant),
+    [reasoning],
+  );
+
+  const closePicker = useCallback(() => setOpen(false), [setOpen]);
 
   const handleUpgrade = useCallback(() => {
     setOpen(false);
     openUpgrade();
   }, [openUpgrade, setOpen]);
+
+  const searchRight =
+    canManageModels && canConnectProvider ? (
+    <div className="-mr-0.5 flex shrink-0 items-center gap-0.5">
+      <Hint label={tModel('connectProvider')} side="top" className="z-50">
+        <button
+          type="button"
+          aria-label={tModel('addProvider')}
+          onClick={() => handleOpenProviderModal('providers')}
+          className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors"
+        >
+          <Plus className="size-4" />
+        </button>
+      </Hint>
+      <Hint label={tModel('manageModels')} side="top" className="z-50">
+        <button
+          type="button"
+          aria-label={tModel('manageModels')}
+          onClick={() => handleOpenProviderModal('models')}
+          className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors"
+        >
+          <SlidersHorizontal className="size-4" />
+        </button>
+      </Hint>
+    </div>
+    ) : undefined;
+
+  const searchEmptyState = (
+    <ModelSearchEmpty
+      search={search}
+      modelCount={models.filter((model) => model.enabled !== false && !(isClaudeSubscriptionModel(model) && model.available === false)).length}
+      onClear={() => setSearch('')}
+      onUpgrade={showUpgradeOption ? handleUpgrade : undefined}
+    />
+  );
+
+  const noModelsState = (
+    <div className="px-3 py-5 text-center">
+      <div className="text-foreground text-sm font-medium">{tModel('empty.title')}</div>
+      <p className="text-muted-foreground mx-auto mt-1 max-w-[220px] text-xs leading-5">
+        {showUpgradeOption
+          ? tModel('empty.upgradeDescription')
+          : tModel('empty.description')}
+      </p>
+      <div className="mt-4 flex items-center justify-center gap-2">
+        {showUpgradeOption && (
+          <Button type="button" size="xs" onClick={handleUpgrade}>
+            <CreditCard className="size-3.5" />
+            {tModel('upgrade')}
+          </Button>
+        )}
+        {canConnectProvider && (
+          <Button
+            type="button"
+            size="xs"
+            variant={showUpgradeOption ? 'outline' : 'default'}
+            onClick={() => handleOpenProviderModal('providers')}
+          >
+            <KeyRound className="size-3.5" />
+            {tModel('connectProvider')}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 
   const inline = appearance === 'inline';
   const listBody = (
@@ -647,32 +779,7 @@ export function ModelSelector({
         placeholder={tModel('search')}
         value={search}
         onValueChange={setSearch}
-        rightElement={
-          canManageModels && canConnectProvider ? (
-          <div className="-mr-0.5 flex shrink-0 items-center gap-0.5">
-            <Hint label={tModel('connectProvider')} side="top" className="z-50">
-              <button
-                type="button"
-                aria-label={tModel('addProvider')}
-                onClick={() => handleOpenProviderModal('providers')}
-                className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors"
-              >
-                <Plus className="size-4" />
-              </button>
-            </Hint>
-            <Hint label={tModel('manageModels')} side="top" className="z-50">
-              <button
-                type="button"
-                aria-label={tModel('manageModels')}
-                onClick={() => handleOpenProviderModal('models')}
-                className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors"
-              >
-                <SlidersHorizontal className="size-4" />
-              </button>
-            </Hint>
-          </div>
-          ) : undefined
-        }
+        rightElement={searchRight}
       />
 
       {/* Same condition as the group headings below: with one group the
@@ -823,40 +930,9 @@ export function ModelSelector({
              filtered by `search`, so the branch below could not tell the
              two apart: typing "zzz" with 40 models connected showed
              "No models available" and a Connect-provider CTA. */
-          <ModelSearchEmpty
-            search={search}
-            modelCount={models.filter((model) => model.enabled !== false && !(isClaudeSubscriptionModel(model) && model.available === false)).length}
-            onClear={() => setSearch('')}
-            onUpgrade={showUpgradeOption ? handleUpgrade : undefined}
-          />
+          searchEmptyState
         ) : (
-          <div className="px-3 py-5 text-center">
-            <div className="text-foreground text-sm font-medium">{tModel('empty.title')}</div>
-            <p className="text-muted-foreground mx-auto mt-1 max-w-[220px] text-xs leading-5">
-              {showUpgradeOption
-                ? tModel('empty.upgradeDescription')
-                : tModel('empty.description')}
-            </p>
-            <div className="mt-4 flex items-center justify-center gap-2">
-              {showUpgradeOption && (
-                <Button type="button" size="xs" onClick={handleUpgrade}>
-                  <CreditCard className="size-3.5" />
-                  {tModel('upgrade')}
-                </Button>
-              )}
-              {canConnectProvider && (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant={showUpgradeOption ? 'outline' : 'default'}
-                  onClick={() => handleOpenProviderModal('providers')}
-                >
-                  <KeyRound className="size-3.5" />
-                  {tModel('connectProvider')}
-                </Button>
-              )}
-            </div>
-          </div>
+          noModelsState
         )}
       </CommandList>
     </>
@@ -920,6 +996,11 @@ export function ModelSelector({
             className={cn('min-w-0 shrink rounded-lg hit-area-y-3', triggerVariant === 'ghost' && 'text-muted-foreground')}
           >
             <span className={cn('max-w-30 truncate', triggerLabelClassName)}>{displayName}</span>
+            {showEffort && (
+              <span className="shrink-0">
+                {currentEffort ? effortLabel(currentEffort) : t('auto')}
+              </span>
+            )}
             <ChevronDown
               className={cn(
                 'duration-moderate size-3 transition-transform ease-out',
@@ -937,9 +1018,39 @@ export function ModelSelector({
           side="top"
           align="start"
           sideOffset={8}
-          className="w-[min(300px,calc(100vw-1.5rem))]"
+          className={
+            showEffort
+              ? 'w-[min(38rem,calc(100vw-1.5rem))]'
+              : 'w-[min(28rem,calc(100vw-1.5rem))]'
+          }
         >
-          {listBody}
+          <ModelPickerPanel
+            browseModels={browseModels}
+            pickableModels={pickableModels}
+            searchModels={visibleModels}
+            search={search}
+            onSearchChange={setSearch}
+            searchRight={searchRight}
+            selected={availableSelectedModel ?? null}
+            onPick={handleSelect}
+            isFavorite={pickerModelStore.isFavorite}
+            setFavorite={pickerModelStore.setFavorite}
+            loading={modelsLoading || entitlementsPending}
+            emptyState={noModelsState}
+            searchEmpty={searchEmptyState}
+            onConnectChatGpt={chatGptAvailable ? handleOpenChatGpt : undefined}
+            onForeignDialog={closePicker}
+            connectLabel={tPooled('connect')}
+            effort={
+              showEffort
+                ? {
+                    choices: effortChoices,
+                    selectedVariant: reasoning?.selectedVariant,
+                    onChange: handleEffortChange,
+                  }
+                : undefined
+            }
+          />
         </CommandPopoverContent>
       </CommandPopover>
     </>

@@ -13,6 +13,7 @@ import { CHANNELS, type ChannelPlatformId, channelConnectorSlug, isChannelPlatfo
 import { config } from '../config';
 import type { ConnectorAuth } from './call';
 import type { ActionBinding, NormalizedAction, Risk } from './types';
+import { actionInputSchema } from './types';
 
 /**
  * Reserved, platform-owned connector slug for the built-in Slack channel.
@@ -509,13 +510,7 @@ function toAction(def: ChannelActionDef): NormalizedAction {
       ...(def.method.includes(`{${key}}`) ? { 'x-in': 'path' } : {}),
     };
   }
-  const inputSchema = Object.keys(def.properties).length
-    ? {
-        type: 'object',
-        properties,
-        ...(def.required.length ? { required: def.required } : {}),
-      }
-    : null;
+  const inputSchema = actionInputSchema(properties, def.required);
   return {
     path: def.path,
     name: def.name,

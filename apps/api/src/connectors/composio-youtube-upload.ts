@@ -18,6 +18,7 @@
  * The upload URL is a credential for this one video: whoever holds it can
  * write this video's bytes, nothing else. It expires after about a week.
  */
+import { isRecord } from '@kortix/shared/guards';
 import { CALLER_ONLY_KEY } from './args-preview';
 import type { ExecResult } from './call';
 import type { ComposioToolLike } from './types';
@@ -48,12 +49,12 @@ export interface ComposioProxyResponse {
   headers?: Record<string, string>;
 }
 
-export interface YoutubeUploadSession {
+interface YoutubeUploadSession {
   sessionId: string;
   proxyExecute?(request: ComposioProxyRequest): Promise<ComposioProxyResponse>;
 }
 
-export const youtubeUploadTool: ComposioToolLike = {
+const youtubeUploadTool: ComposioToolLike = {
   type: 'function',
   function: {
     name: YOUTUBE_UPLOAD_TOOL,
@@ -149,9 +150,6 @@ export function kortixComposioTool(toolkit: string, toolSlug: string): KortixCom
 }
 
 const callerError = (message: string): ExecResult => ({ ok: false, status: 400, data: message });
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** A POSIX shell word: `'it'"'"'s'` for `it's`. */
 export function shellQuote(value: string): string {
@@ -294,8 +292,8 @@ const DAY_SECONDS = 24 * 60 * 60;
 
 /** YouTube's error reason and message, from a Google API error body. */
 function googleError(data: unknown): { reason: string | null; message: string | null; quota: DailyQuota | null } {
-  const error = isObject(data) && isObject(data.error) ? data.error : null;
-  const first = error && Array.isArray(error.errors) && isObject(error.errors[0]) ? error.errors[0] : null;
+  const error = isRecord(data) && isRecord(data.error) ? data.error : null;
+  const first = error && Array.isArray(error.errors) && isRecord(error.errors[0]) ? error.errors[0] : null;
   return {
     reason: typeof first?.reason === 'string' ? first.reason : null,
     message: typeof error?.message === 'string' ? error.message : null,
@@ -306,8 +304,8 @@ function googleError(data: unknown): { reason: string | null; message: string | 
 function dailyQuota(error: Record<string, unknown> | null): DailyQuota | null {
   const details = error && Array.isArray(error.details) ? error.details : [];
   for (const detail of details) {
-    if (!isObject(detail) || detail['@type'] !== 'type.googleapis.com/google.rpc.ErrorInfo') continue;
-    const metadata = isObject(detail.metadata) ? detail.metadata : {};
+    if (!isRecord(detail) || detail['@type'] !== 'type.googleapis.com/google.rpc.ErrorInfo') continue;
+    const metadata = isRecord(detail.metadata) ? detail.metadata : {};
     const unit = typeof metadata.quota_unit === 'string' ? metadata.quota_unit : '';
     const windowStart = Number(metadata.window_start_time);
     if (!unit.includes('/d/') || !Number.isSafeInteger(windowStart) || windowStart <= 0) continue;

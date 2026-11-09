@@ -167,3 +167,64 @@ describe('ComposerToolbar — send is refused with no accessible agent', () => {
     expect(html).toContain('No agents available to you — ask a manager for access');
   });
 });
+
+describe('ComposerToolbar model + thinking effort', () => {
+  // Effort is a pane of the model popover: one pill names both values at rest,
+  // and the separate effort dropdown renders only when there is no model pill.
+  const model = {
+    providerID: 'anthropic',
+    providerName: 'Anthropic',
+    modelID: 'claude-opus-test',
+    modelName: 'Opus Test',
+    variants: { low: {}, medium: {}, high: {} },
+  };
+
+  function renderPickers(withModelPill: boolean): string {
+    return renderToStaticMarkup(
+      <IntlTestProvider locale="en" onError={noop}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <TooltipProvider>
+            <ComposerToolbar
+              models={withModelPill ? [model] : []}
+              selectedModel={{ providerID: model.providerID, modelID: model.modelID }}
+              onModelChange={withModelPill ? noop : undefined}
+              modelRequired={false}
+              variants={['low', 'medium', 'high']}
+              selectedVariant="medium"
+              onVariantChange={noop}
+              projectId={undefined}
+              isSending={false}
+              isBusy={false}
+              stopDisabled={false}
+              escCount={0}
+              lockForQuestion={false}
+              questionCanAct={false}
+              hasText={false}
+              canSubmit={false}
+              submitDisabled={false}
+              disabled={false}
+              modelUnavailable={false}
+              onSubmit={noop}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </IntlTestProvider>,
+    );
+  }
+
+  test('one pill names the model and its effort; no separate effort control', () => {
+    const html = renderPickers(true);
+    const pill = /<button[^>]*>(?:(?!<\/button>)[\s\S])*Opus Test(?:(?!<\/button>)[\s\S])*<\/button>/.exec(html)?.[0];
+    expect(pill).toBeDefined();
+    expect(pill).toContain('Medium');
+    expect(html).not.toContain('aria-label="Thinking effort"');
+  });
+
+  test('without a model pill, effort keeps its own dropdown', () => {
+    const html = renderPickers(false);
+    expect(html).toContain('aria-label="Thinking effort"');
+    expect(html).toContain('Medium');
+  });
+});

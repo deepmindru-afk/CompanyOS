@@ -1,5 +1,7 @@
 import ComposioClient from '@composio/client';
 
+import { boundedCount } from './connector-catalog';
+
 interface CatalogToolkit {
   slug: string;
   name: string;
@@ -325,10 +327,6 @@ export function publicToolkit(item: CatalogToolkit) {
     isNoAuth: item.no_auth === true,
     connected: false,
   };
-}
-
-function boundedCount(value: number | undefined, fallback: number, max: number): number {
-  return value && value > 0 ? Math.min(Math.floor(value), max) : fallback;
 }
 
 /**

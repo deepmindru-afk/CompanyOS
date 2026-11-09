@@ -5,7 +5,7 @@ import {
 } from '@kortix/llm-gateway';
 import type { AudioRequest, ClaudeCodeRequest, RequestOrigin, VoicesRequest } from '@kortix/llm-gateway';
 import type { Hono } from 'hono';
-import { cloudflareSafe, messagesAuthorization, perRequestCapBytes } from './server';
+import { type GatewayApp, cloudflareSafe, messagesAuthorization, perRequestCapBytes } from './server';
 
 type Protocol = 'chat' | 'messages' | 'responses' | 'images' | 'audio';
 type InferenceRequest = { authorization: string | undefined; rawBody: string; signal?: AbortSignal; origin?: RequestOrigin };
@@ -182,17 +182,19 @@ function claudeCode(gateway: Gateway, inflight: InflightBudget, recordOutcome: (
  * managed audio models and billed at the price the upstream reports.
  */
 export function registerRoutes(
-  app: Hono,
+  app: GatewayApp,
   gateway: Gateway,
   inflight: InflightBudget,
   recordOutcome: (status: number) => void,
-  rateLimit: (request: Request, headers?: Headers) => Response | null,
+  rateLimit: (request: Request, headers?: Headers, source?: string | null) => Response | null,
 ) {
   // Every model route checks the per-credential limit first (token-rate-limit.ts).
-  const limited = <C extends { req: { raw: Request } }>(handler: (c: C) => Promise<Response>) =>
+  const limited = <C extends { req: { raw: Request }; env?: { clientIp?: string | null } }>(
+    handler: (c: C) => Promise<Response>,
+  ) =>
     async (c: C) => {
       const headers = new Headers();
-      const response = rateLimit(c.req.raw, headers) ?? await handler(c);
+      const response = rateLimit(c.req.raw, headers, c.env?.clientIp ?? null) ?? (await handler(c));
       headers.forEach((value, name) => response.headers.set(name, value));
       return response;
     };

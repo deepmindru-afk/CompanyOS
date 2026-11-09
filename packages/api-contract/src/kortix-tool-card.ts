@@ -69,9 +69,27 @@ export interface KortixGrantor {
 export interface KortixToolError {
   /** `denied`: the person lacks the permission. `not_found`, `invalid`: the input. `failed`: anything else. */
   kind: 'denied' | 'not_found' | 'invalid' | 'failed';
+  /** For the model: what went wrong and how to call again. The card never shows it. */
   message: string;
+  /** One plain line for the person, when there is something they can read or do. The card's subtitle. */
+  note?: string;
   /** For `denied`: the people who can grant it, when the tool could read them. */
   grantors?: KortixGrantor[];
+}
+
+/** The card title of a failed call that left out or garbled an argument: the model retries, the person needs nothing. */
+export const KORTIX_INCOMPLETE_CALL_TITLE = 'The agent left out a required detail';
+
+/**
+ * The person's title of a failed call. A tool's argument check is titled as a
+ * question to the model ("Which agent?", "What should the follow-up check?")
+ * or "Unknown action"; the person reads that it was incomplete instead. Every
+ * other title already says what did not happen.
+ */
+export function kortixFailureTitle(title: string, kind: KortixToolError['kind']): string {
+  if (kind !== 'invalid') return title;
+  const trimmed = title.trim();
+  return trimmed.endsWith('?') || trimmed === 'Unknown action' ? KORTIX_INCOMPLETE_CALL_TITLE : title;
 }
 
 export interface KortixToolResult {

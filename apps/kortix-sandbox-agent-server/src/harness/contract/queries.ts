@@ -2,7 +2,7 @@ import type { Config } from '@/lib/config/config'
 import type { KortixEventListener, SubscribeResult } from '@/services/event-bus/kortix-event-bus'
 
 /** Existing response documents remain opaque until the public protocol changes. */
-export type HarnessDocument = Record<string, unknown>
+type HarnessDocument = Record<string, unknown>
 
 export type HarnessAttachmentResult =
   | { kind: 'bytes'; bytes: Uint8Array; mime: string }

@@ -13,7 +13,7 @@ export interface HarnessDiagnosticsContext {
   resources: () => ResourceMonitor | null
 }
 
-export interface HarnessHealthQuery {
+interface HarnessHealthQuery {
   /** Absence leaves the potentially expensive turn observation disabled. */
   turn?: { sessionId?: string; messageId?: string }
 }
@@ -32,7 +32,7 @@ export interface HarnessHealthReport {
   configDirSha?: string | null
 }
 
-export interface HarnessDiagnosticReport {
+interface HarnessDiagnosticReport {
   at: string
   daemon: {
     pid: number
@@ -54,7 +54,7 @@ export interface HarnessDiagnosticReport {
   [field: string]: unknown
 }
 
-export interface HarnessLogTail {
+interface HarnessLogTail {
   label: string
   text: string | null
 }

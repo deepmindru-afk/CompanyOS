@@ -37,7 +37,7 @@ import { apiErrorMessage, callApi, errorKind, failure, sessionPath, toolReturn, 
 export const TEAM_TASK_TOOLS = ['task_create', 'task_list', 'task_get', 'task_update'] as const
 
 /** What the task tools need from the runtime. */
-export interface TeamTasksHost {
+interface TeamTasksHost {
   controlPlane(): ControlPlane | null
   /** The lead session whose list this session uses: itself as a lead, its lead as a teammate. */
   teamLead(): string

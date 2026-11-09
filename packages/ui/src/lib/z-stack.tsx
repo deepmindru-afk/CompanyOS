@@ -182,3 +182,19 @@ export function hasOpenNestedDialog(): boolean {
     ).length > 1
   );
 }
+
+/**
+ * An open dialog that is not `panel` and holds no part of it: the command
+ * palette, the Models dialog, an accounts modal. A top-level popover sits at
+ * `floatingZ(0)`, above every top-level dialog, so a popover still open when
+ * one of those opens would float over it; popovers use this to step aside.
+ */
+export function foreignDialogOpen(panel: HTMLElement | null): boolean {
+  for (const dialog of document.querySelectorAll<HTMLElement>(
+    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+  )) {
+    if (!panel || (dialog !== panel && !panel.contains(dialog) && !dialog.contains(panel)))
+      return true;
+  }
+  return false;
+}

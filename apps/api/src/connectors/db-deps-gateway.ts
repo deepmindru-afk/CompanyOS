@@ -55,6 +55,7 @@ import { runPipedreamAction, runPipedreamProxy } from './pipedream';
 import type { ConnectorPrincipal } from './router-contract';
 import { COMPUTER_SLUG, withComputerCatalog } from './computers';
 import { ensureProjectComputer } from './sync';
+import { isUuid } from '../shared/validate';
 import type { ActionBinding, Risk } from './types';
 import {
   type ConnectorRow,
@@ -64,7 +65,6 @@ import {
   composioConnectedAccountId,
   composioConnectionIsNoAuth,
   headersOf,
-  isUuid,
   loadConnectorPoliciesFor,
   loadConnectorPolicySetFor,
   loadDefaultModeFor,

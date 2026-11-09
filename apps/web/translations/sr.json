@@ -2047,7 +2047,13 @@
       "title": "Нема доступних модела",
       "description": "Повежите сопственог добављача да бисте започели коришћење ове сесије.",
       "upgradeDescription": "Надоградите или повежите сопственог добављача да бисте започели коришћење ове сесије."
-    }
+    },
+    "favorites": "Omiljeni",
+    "favoritesEmpty": "Označite model zvezdicom da biste ga zadržali ovde.",
+    "addFavorite": "Dodaj {model} u omiljene",
+    "removeFavorite": "Ukloni {model} iz omiljenih",
+    "groups": "Grupe modela",
+    "thinking": "Razmišljanje"
   },
   "sessionScope": {
     "resetDefault": "Врати на подразумевано",
@@ -2075,8 +2081,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "Надогради",
-      "barTitle": "Ниједан модел није повезан",
-      "barDescription": "повежите модел да бисте започели разговор",
+      "offerTitle": "Koristite svoj ChatGPT ili Claude plan",
+      "connectChatGpt": "Poveži ChatGPT",
+      "connectClaude": "Poveži Claude",
+      "hidePlan": "Ne prikazuj {name}",
+      "chatGptPlan": "Plus ili Pro plan",
+      "claudePlan": "Pro ili Max plan",
       "connectModel": "Повежи модел",
       "imagesUnsupported": "{model} не може да чита слике",
       "imagesUnsupportedHint": "уклони их или изабери други модел"

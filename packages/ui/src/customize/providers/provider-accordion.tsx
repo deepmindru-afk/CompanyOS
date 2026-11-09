@@ -751,6 +751,8 @@ export interface ProviderAccordionProps {
   projectId: string;
   canWrite?: boolean;
   enabled?: boolean;
+  /** The row that starts expanded — the composer's "Connect ChatGPT" lands on OpenAI. */
+  defaultExpandedId?: string | null;
   className?: string;
 }
 
@@ -758,6 +760,7 @@ export function ProviderAccordion({
   projectId,
   canWrite = false,
   enabled = true,
+  defaultExpandedId = null,
   className,
 }: ProviderAccordionProps) {
   const t = useTranslations('providerSheet');
@@ -778,7 +781,7 @@ export function ProviderAccordion({
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PROVIDER_PAGE_SIZE);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(defaultExpandedId);
   const [addingId, setAddingId] = useState<string | null>(null);
 
   const connectedIds = useMemo(

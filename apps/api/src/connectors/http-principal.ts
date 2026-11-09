@@ -7,11 +7,11 @@ import { actorOf } from '../iam/actor';
 import { loadProjectForUser } from '../projects/lib/access';
 import { reconcileStoredSessionAgentGrant } from '../projects/lib/session-token-grant';
 import { db } from '../shared/db';
+import { isUuid } from '../shared/validate';
 import { getRequestOnBehalfOf } from '../projects/lib/on-behalf-of';
 import { tokenAgentPrincipalScope } from '../projects/lib/personal-resources';
 import type { ConnectorPrincipal } from './router-contract';
 import { resolveShareSubject } from './share';
-import { isUuid } from './db-deps-rows';
 import {
   projectSessionIdForProjectPrincipal,
   resolveTokenBoundSessionId,

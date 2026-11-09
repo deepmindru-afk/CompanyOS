@@ -222,11 +222,19 @@ export function NewWorkspacePage() {
           setSigningOut(true);
           void performSignOut();
         }}
-        back={{ href: '/workspaces', label: t('actions.back') }}
+        // While the create is in flight both escapes are withheld (KRTX-4551):
+        // a customer who leaves mid-create lands on a list without the
+        // workspace and can resubmit, and the handoff below is the only thing
+        // to look at while the wait runs. The pill returns the moment the
+        // create resolves or fails; Log out stays reachable in the account
+        // menu either way — the page must never be fully trapped.
+        back={submitting ? undefined : { href: '/workspaces', label: t('actions.back') }}
         // Desktop only. The shell has no browser toolbar, so without this the
         // account menu was the only way off this page there. `replace`, not
         // `push`: `/workspaces/new` is where the user left, not somewhere to return to.
-        trailing={<DesktopCloseButton onClose={() => router.replace('/workspaces')} />}
+        trailing={
+          submitting ? null : <DesktopCloseButton onClose={() => router.replace('/workspaces')} />
+        }
       />
 
       {/* TWO states, one swap — see the `SWAP_IN`/`SWAP_OUT` doc comment above.

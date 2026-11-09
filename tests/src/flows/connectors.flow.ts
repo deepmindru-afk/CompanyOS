@@ -5163,11 +5163,13 @@ flow(
 
     let slowStarted = 0;
     let slowClosedAfterMs = -1;
+    const upstreamHits: string[] = [];
     const upstream = createServer((req, res) => {
       const json = (status: number, body: unknown, headers: Record<string, string> = {}) => {
         res.writeHead(status, { 'content-type': 'application/json', ...headers });
         res.end(JSON.stringify(body));
       };
+      upstreamHits.push(req.url ?? '');
       if (req.url === '/api/ok') return json(200, { items: [1, 2] });
       if (req.url === '/api/limited') return json(429, { message: 'slow down' }, { 'retry-after': '2' });
       if (req.url === '/api/unavailable') return json(503, { message: 'maintenance' }, { 'retry-after': '30' });
@@ -5198,6 +5200,7 @@ flow(
         if (req.url === '/graphql') {
           return json(200, { data: { issue: null }, errors: [{ message: 'Entity not found: issue' }] });
         }
+        if (req.url.startsWith('/api/intents/')) return json(200, { id: req.url.slice('/api/intents/'.length) });
         json(404, { message: 'no route' });
       });
     });
@@ -5250,7 +5253,8 @@ flow(
           }
         };
         const route = (path: string) => ({ path, binding: { kind: 'openapi', method: 'GET', path: `/api/${path}`, server: base } });
-        await seed(slug.api, 'openapi', {}, [route('ok'), route('limited'), route('unavailable'), route('slow')]);
+        const intentRoute = { path: 'intent_fetch', binding: { kind: 'openapi', method: 'GET', path: '/api/intents/{intentId}', server: base } };
+        await seed(slug.api, 'openapi', {}, [route('ok'), route('limited'), route('unavailable'), route('slow'), intentRoute]);
         await seed(slug.mcp, 'mcp', { url: `${base}/mcp` }, [{ path: 'get_issue', binding: { kind: 'mcp', tool: 'get_issue' } }]);
         await seed(slug.gql, 'graphql', { endpoint: `${base}/graphql` }, [
           { path: 'issue', binding: { kind: 'graphql', operation: 'query', field: 'issue' } },
@@ -5266,6 +5270,29 @@ flow(
           .has('$.upstream_status', 200)
           .has('$.data.items[1]', 2)
           .has('$.output', undefined);
+      });
+
+      await ctx.step('an empty path argument → 400 invalid_args naming the argument, with NO upstream request', async () => {
+        // KRTX-4539: the empty id used to go out as `/api/intents/` and the
+        // provider answered a misleading 404 for the truncated URL.
+        upstreamHits.length = 0;
+        const r = await call(slug.api, 'intent_fetch', { intentId: '' });
+        r.status(400)
+          .body()
+          .has('$.ok', false)
+          .has('$.status', 'denied')
+          .has('$.reason', 'invalid_args');
+        if (!r.json<{ message?: string }>().message?.includes('intentId')) {
+          throw new Error(`message does not name the argument: ${r.text()}`);
+        }
+        if (upstreamHits.length > 0) throw new Error(`the empty-id call reached the upstream: ${upstreamHits.join(' ')}`);
+      });
+
+      await ctx.step('a non-empty path argument goes through and reaches the upstream segment', async () => {
+        upstreamHits.length = 0;
+        const r = await call(slug.api, 'intent_fetch', { intentId: 'pi_789' });
+        r.status(200).body().has('$.data.id', 'pi_789').has('$.binding', 'openapi').has('$.upstream_status', 200);
+        if (!upstreamHits.includes('/api/intents/pi_789')) throw new Error(`junk upstream hits: ${upstreamHits.join(' ')}`);
       });
 
       await ctx.step('upstream 429 → HTTP 429 with Retry-After: 2 and retry_after_seconds; reason unchanged', async () => {

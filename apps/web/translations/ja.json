@@ -2047,7 +2047,13 @@
       "title": "利用できるモデルがありません",
       "description": "自分のプロバイダーに接続すると、このセッションを利用できます。",
       "upgradeDescription": "アップグレードするか、自分のプロバイダーに接続すると、このセッションを利用できます。"
-    }
+    },
+    "favorites": "お気に入り",
+    "favoritesEmpty": "モデルにスターを付けるとここに表示されます。",
+    "addFavorite": "{model} をお気に入りに追加",
+    "removeFavorite": "{model} をお気に入りから削除",
+    "groups": "モデルグループ",
+    "thinking": "思考"
   },
   "sessionScope": {
     "resetDefault": "デフォルトに戻す",
@@ -2075,8 +2081,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "アップグレード",
-      "barTitle": "モデル未接続",
-      "barDescription": "接続してチャットを開始",
+      "offerTitle": "ChatGPT または Claude のプランを使う",
+      "connectChatGpt": "ChatGPT を接続",
+      "connectClaude": "Claude を接続",
+      "hidePlan": "{name} を表示しない",
+      "chatGptPlan": "Plus または Pro プラン",
+      "claudePlan": "Pro または Max プラン",
       "connectModel": "モデルを接続",
       "imagesUnsupported": "{model} は画像を読み取れません",
       "imagesUnsupportedHint": "画像を削除するか、別のモデルを選択してください"

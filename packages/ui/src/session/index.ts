@@ -30,7 +30,7 @@ export { BasicTool } from './tool/shared/infrastructure-rows';
 export { GenericTool } from './tool/generic-tool';
 export { SessionChatInput, type SessionChatInputProps } from './composer/session-chat-input';
 export { AgentSelector } from './composer/agent-selector';
-export { ModelSelector, type ModelSelectorProps } from './models/model-selector';
+export { ModelSelector, type ModelSelectorProps, type ModelReasoningControls } from './models/model-selector';
 export { SessionPermissionPrompt } from './prompts/session-permission-prompt';
 export { QuestionPrompt, type QuestionPromptHandle } from './prompts/question-prompt';
 export { TurnErrorDisplay } from './status/session-error-banner';

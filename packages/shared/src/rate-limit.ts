@@ -82,7 +82,23 @@ export class TokenBucketRateLimiter {
     }
 
     bucket.tokens -= 1;
-    return { allowed: true, limit, remaining: bucket.tokens, resetMs: (limit - bucket.tokens) * msPerToken - inProgress };
+    return {
+      allowed: true,
+      limit,
+      remaining: bucket.tokens,
+      resetMs: (limit - bucket.tokens) * msPerToken - inProgress,
+    };
+  }
+
+  /** Return one token to a bucket (a request that turned out to belong to a real key). */
+  refund(key: string, policy: RateLimitPolicy): void {
+    const bucket = this.buckets.get(`${this.namespace}:${key}`);
+    if (bucket) bucket.tokens = Math.min(Math.max(1, Math.floor(policy.limit)), bucket.tokens + 1);
+  }
+
+  /** The live bucket keys, for a test that asserts how many a path leaves behind. */
+  keys(): string[] {
+    return [...this.buckets.keys()];
   }
 
   reset() {

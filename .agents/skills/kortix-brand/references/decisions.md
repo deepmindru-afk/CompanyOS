@@ -10,6 +10,16 @@ Ids: `D1` to `D8` and `D4a` to `D4k` come from the 2026-10-01 brand-kit build. `
 
 ---
 
+## 2026-11-09
+
+### D42 The home hero has no trait line: title, then subhead
+- **Date:** 2026-11-09
+- **Decision:** The home hero renders no trait block above the title. It is the nav, then the title "The CompanyOS" (D35), then the subhead (D37), then the CTAs and the session-window band. No carousel, badges or replacement line goes in the freed space.
+- **Why:** two teammates in #kortix-triage, 2026-11-09: the two-by-two icon-and-label line ("Open Source, Extensible, Multiplayer, Sovereign", D35) reads as clutter and eats about a quarter of a phone's first screen; the follow-up ask was to remove the section outright, with no substitute.
+- **Where:** `apps/web/src/features/marketing/landing-hero/sand-band-hero.tsx`. The trait words stay in [positioning.md](verbal/positioning.md) "The three lengths" (the Short line), which the hero no longer spells out.
+- **Supersedes:** the trait-line part of D35 (D35's subhead part was already superseded by D37; the title and the positioning line stand).
+- **Source:** KRTX-4560 (the `krtx-4560-remove-hero-traits` branch).
+
 ## 2026-11-06
 
 ### D41 One workspace role, one Settings panel, and the workspace code names

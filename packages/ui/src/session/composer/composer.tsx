@@ -1492,20 +1492,12 @@ function ComposerImpl(props: SessionChatInputProps) {
   }, [quoteRequests, appendQuoteTexts]);
 
   /**
-   * The model popover's open state, hoisted out of `ModelSelector` so the `/`
-   * palette can open it. `focusSection` is what separates the palette's two
-   * model-related rows: reasoning effort is a footer row INSIDE this popover
-   * rather than a control of its own (see `model-selector.tsx`), so both rows
-   * open the same element and only the landing point differs.
-   */
-  /**
-   * Open state for the two toolbar controls the `/` palette can reach.
-   * Hoisted out of the controls themselves so a palette row can open them;
-   * both stay uncontrolled for every other consumer.
+   * Open state for the pickers the `/` palette can reach, hoisted so a
+   * palette row can open them.
    *
-   * Two separate flags, not one with a "which section" discriminator: model
-   * and reasoning effort are now two distinct dropdowns, so a single flag
-   * would open both or neither.
+   * Two flags for model and reasoning effort: the toolbar opens its one
+   * merged model + effort popover for either, and the `chat_input` control
+   * uses them to pick which row opens highlighted (`initialRow`).
    */
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);

@@ -7,6 +7,7 @@ import { downloadAndExtractProjectSnapshot } from './archive'
 import type { ProjectSnapshotDescriptor, ProjectSnapshotPin } from './contract'
 import { fetchProjectSnapshotDescriptor, parseEnvProjectSnapshotDescriptor } from './descriptor'
 import { ProjectSnapshotError, errorMessage } from './errors'
+import { retryable, snapshotBackoff } from './retry'
 import type { SnapshotTransferOptions } from './transfer'
 import { verifyExtractedProjectSnapshot } from './verify'
 
@@ -126,8 +127,8 @@ export async function stageProjectSnapshot(
       // provider create) is a stale descriptor, not a denial: the next attempt
       // asks the proxy for a fresh one instead of falling back to Git.
       const staleEnvUrl = descriptorSource === 'env' && failure.reason === 'expired-authorization'
-      if (!(failure.retryable || staleEnvUrl) || attempts >= S3_MAX_ATTEMPTS) throw lastError
-      const backoff = Math.min(300 * 2 ** (attempts - 1) + Math.floor(Math.random() * 250), Math.max(0, deadline - Date.now()))
+      if (!(retryable(failure) || staleEnvUrl) || attempts >= S3_MAX_ATTEMPTS) throw lastError
+      const backoff = snapshotBackoff(attempts, 300, deadline)
       logger.warn('[project-snapshot] s3 attempt failed; retrying', {
         attempt: attempts,
         stage: failure.stage,

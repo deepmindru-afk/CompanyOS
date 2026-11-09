@@ -14,15 +14,15 @@ import { ReasoningEffortSelector } from './reasoning-effort-selector';
 import { SendStopControl } from './send-stop-control';
 
 /**
- * The composer's bottom toolbar — the familiar one, now scoped to the two
- * controls that describe WHAT will answer.
+ * The composer's bottom toolbar — the familiar one, scoped to the one control
+ * that describes WHAT will answer.
  *
- *  - LEFT: model, thinking effort — inline, showing their current value at
- *    rest. Thinking effort IS the model variant (`local.model.variant`): one
- *    knob, per session, in both runtime modes. It used to be split — a
- *    "Thinking mode" row folded inside the model popover off-gateway and a
- *    project-level routing-policy chip on-gateway (#6872) — which put the
- *    same setting in two places with two scopes. The popover row is gone.
+ *  - LEFT: model + thinking effort, ONE pill ("Opus 5.5 Medium") that opens
+ *    ONE popover: the model list on the left, the selected model's effort
+ *    levels on the right (`ModelSelector`'s `reasoning` prop). Thinking effort
+ *    IS the model variant (`local.model.variant`): one knob, per session.
+ *    Effort depends on the model, so it is chosen beside the model it belongs
+ *    to. When no model pill renders, effort falls back to its own dropdown.
  *  - RIGHT: send/stop.
  *
  * Attach, agent, and token progress used to sit here. They now live in the
@@ -32,9 +32,11 @@ import { SendStopControl } from './send-stop-control';
  * (context ring, hard right). Do not re-add them here — they would render
  * twice.
  *
- * The effort control's placement was resolved deliberately: it sits here,
- * glanceable at rest, and the `/` palette's "Set reasoning effort" row opens
- * it (`reasoningMenuOpen`). Do not fold it back into the model popover.
+ * Effort placement history: a "Thinking mode" footer row in the model
+ * popover (off-gateway) plus a project-level routing chip (on-gateway, #6872);
+ * then a separate effort pill beside the model pill. Now a pane of the model
+ * popover, glanceable at rest in the pill's label. The `/` palette's "Switch
+ * model" and "Set reasoning effort" rows both open that popover.
  *
  * Two earlier passes are recorded here so they are not re-attempted:
  *
@@ -62,17 +64,17 @@ export interface ComposerToolbarProps {
   /**
    * Lets the composer open the model popover from outside the toolbar — the
    * `/` palette's "Switch model" and "Set reasoning effort" rows. Both land on
-   * this one control: reasoning effort is a footer row INSIDE the model
-   * popover, not a popover of its own (see `model-selector.tsx`).
+   * this one control: reasoning effort is the right-hand pane of the model
+   * popover (see `model-selector.tsx`).
    *
    * Optional, so a toolbar rendered without them behaves exactly as before,
    * with `ModelSelector` owning its own open state.
    */
   modelMenuOpen?: boolean;
   onModelMenuOpenChange?: (open: boolean) => void;
-  /** Same, for the reasoning-effort dropdown — the `/` palette's "Set
-   *  reasoning effort" row. A separate pair because it is now a separate
-   *  control, not a section inside the model popover. */
+  /** The `/` palette's "Set reasoning effort" row. Opens the same merged
+   *  popover; it drives the standalone effort dropdown only when no model
+   *  pill renders. */
   reasoningMenuOpen?: boolean;
   onReasoningMenuOpenChange?: (open: boolean) => void;
 
@@ -168,6 +170,15 @@ export function ComposerToolbar({
   const { modelPickerEnabled } = useUiHostConfig();
   const showModel =
     !pickersInChatInput && modelPickerEnabled && (models.length > 0 || modelRequired) && !!onModelChange;
+  // Either `/` palette row opens the one merged popover.
+  const pickerOpen =
+    modelMenuOpen === undefined && reasoningMenuOpen === undefined
+      ? undefined
+      : !!(modelMenuOpen || reasoningMenuOpen);
+  const onPickerOpenChange = (next: boolean) => {
+    onModelMenuOpenChange?.(next);
+    if (!next) onReasoningMenuOpenChange?.(false);
+  };
 
   return (
     <div className="kortix-composer-toolbar flex items-center justify-between gap-1 overflow-visible">
@@ -185,12 +196,13 @@ export function ComposerToolbar({
             triggerLabelClassName="max-w-[7rem]"
             projectId={projectId}
             offerProviderAccounts
-            open={modelMenuOpen}
-            onOpenChange={onModelMenuOpenChange}
+            open={pickerOpen}
+            onOpenChange={onPickerOpenChange}
+            reasoning={{ variants, selectedVariant, onVariantChange }}
           />
         )}
 
-        {modelPickerEnabled && !pickersInChatInput && <ReasoningEffortSelector
+        {!showModel && modelPickerEnabled && !pickersInChatInput && <ReasoningEffortSelector
           variants={variants}
           selectedVariant={selectedVariant}
           onVariantChange={onVariantChange}

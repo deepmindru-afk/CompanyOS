@@ -240,3 +240,39 @@ describe('the explicit global-default write clears the per-agent and per-session
     expect(after.getSelectedModel('coder')).toEqual({ providerID: 'kortix', modelID: 'old/agent-pick' });
   });
 });
+
+describe('favorite models', () => {
+  const OPUS: ModelKey = { providerID: 'kortix', modelID: 'anthropic/opus-fav-test' };
+  const SOL: ModelKey = { providerID: 'kortix', modelID: 'codex/sol-fav-test' };
+
+  test('a model is not a favorite until the user stars it', () => {
+    expect(captureModelStore([]).isFavorite(OPUS)).toBe(false);
+  });
+
+  test('setFavorite stars and unstars one model and leaves the others alone', () => {
+    const store = captureModelStore([]);
+    store.setFavorite(OPUS, true);
+    store.setFavorite(SOL, true);
+    let after = captureModelStore([]);
+    expect(after.isFavorite(OPUS)).toBe(true);
+    expect(after.isFavorite(SOL)).toBe(true);
+
+    after.setFavorite(OPUS, false);
+    after = captureModelStore([]);
+    expect(after.isFavorite(OPUS)).toBe(false);
+    expect(after.isFavorite(SOL)).toBe(true);
+    after.setFavorite(SOL, false);
+  });
+
+  test('starring keeps the model’s visibility pin, and a visibility change keeps the star', () => {
+    const store = captureModelStore([]);
+    store.setVisibility(OPUS, false);
+    store.setFavorite(OPUS, true);
+    store.setVisibility(OPUS, false);
+    const after = captureModelStore([]);
+    expect(after.isFavorite(OPUS)).toBe(true);
+    expect(after.isVisible(OPUS)).toBe(false);
+    after.setFavorite(OPUS, false);
+    after.resetVisibility();
+  });
+});

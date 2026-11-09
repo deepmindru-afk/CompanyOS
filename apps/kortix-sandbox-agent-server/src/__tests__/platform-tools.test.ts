@@ -317,6 +317,8 @@ describe('kortix_schedules follow-through', () => {
     // The example is a whole call the model can copy.
     const example = missing.error!.message.slice(missing.error!.message.indexOf('{'))
     expect(JSON.parse(example)).toMatchObject({ action: 'follow_up', in: '4d' })
+    // The card is the person's: the model's instructions and example never reach it.
+    expect(missing.card).toEqual({ title: 'The agent left out a required detail', status: 'error' })
     expect((await run('kortix_schedules', { action: 'wake_on', on: 'cr_merged', cr: '42' })).error?.message).toContain('{"action":"wake_on"')
     expect(argvs()).toHaveLength(2)
   })
@@ -362,6 +364,20 @@ describe('kortix_schedules follow-through', () => {
       schedules: [{ id: 'weekly-digest', text: 'Weekly digest', schedule: '0 9 * * 1', agent: null, next_fire: '2026-11-02T09:00:00.000Z', state: 'active' }],
     })
     expect(result.card.rows?.map((row) => row.detail)).toEqual(['Follow-up · every 3h · next 2026-10-31 15:00 UTC', 'Wakes when change request 42 merges', '0 9 * * 1 · next 2026-11-02 09:00 UTC'])
+  })
+
+  test('list with one unreadable source: the card says which in plain words, the reason goes to the model in data.errors', async () => {
+    fakeKortix(`'triggers ls --json') echo '{"triggers":[],"runtime":[]}' ;;`)
+    const result = await run('kortix_schedules', { action: 'list' })
+    expect(result.card.subtitle).toBe("This session's follow-ups could not be read.")
+    expect(typeof (result.data as { errors?: { follow_ups?: unknown } }).errors?.follow_ups).toBe('string')
+  })
+
+  test('an automate argument check reads as an incomplete call on the card', async () => {
+    fakeKortix('')
+    const result = await run('kortix_schedules', { action: 'automate', name: 'Not A Slug', on: 'schedule', every: '1d', agent: 'writer', prompt: 'x' })
+    expect(result.card).toEqual({ title: 'The agent left out a required detail', status: 'error' })
+    expect(result.error?.message).toContain('`name` is a short id')
   })
 
   test('remove routes by id: reminder.<id> → kortix loops, trigger.<id> → kortix triggers, a kortix.yaml slug → --apply; delete is an alias; pause and resume work for loops', async () => {
@@ -669,6 +685,9 @@ describe('kortix_schedules automate tolerance', () => {
     const result = await run('kortix_schedules', { action: 'automate', name: 'form-leads', on: 'webhook', secret_env: 'FORM_SECRET', prompt: 'Draft a reply.' })
     expect(result.ok).toBe(false)
     expect(result.card.title).toBe('FORM_SECRET needs saving for webhooks')
+    // The person saves it from the card: one link, a plain note, no model instruction.
+    expect(result.card.links).toEqual([{ label: 'Save secret', href: 'https://app.example.test/secret-intake/ksl_abc123' }])
+    expect(result.card.subtitle).toBe('Save the value on the linked page. It never passes through chat.')
     expect(result.error?.message).toContain('https://app.example.test/secret-intake/ksl_abc123')
     expect((result as { data?: { secret_intake_url?: string } }).data?.secret_intake_url).toBe('https://app.example.test/secret-intake/ksl_abc123')
     expect(argvs()[1]).toBe('secrets request FORM_SECRET --scope=connector')
@@ -733,5 +752,22 @@ describe('runKortix', () => {
     chmodSync(join(bin, 'kortix'), 0o755)
     const result = await runKortix(['schedules', 'create', '--json'], { env: env() }, 'x'.repeat(1024 * 1024))
     expect(result.code).toBe(3)
+  })
+})
+
+describe('a failure card carries no text written for the model', () => {
+  test('fail(): an argument check reads as an incomplete call, a note shows, the message never does', async () => {
+    const { fail } = await import('@/services/tools/platform/platform')
+    const context = { env: {} }
+    const question = await fail('kortix_agents', 'create', 'Which agent?', { kind: 'invalid', message: 'Pass `name`.' }, context)
+    expect(question.card).toEqual({ title: 'The agent left out a required detail', status: 'error' })
+    expect(question.error).toEqual({ kind: 'invalid', message: 'Pass `name`.' })
+    const unknown = await fail('kortix_agents', 'nope', 'Unknown action', { kind: 'invalid', message: 'Use one of: list.' }, context)
+    expect(unknown.card.title).toBe('The agent left out a required detail')
+    // A server refusal of a well-formed call keeps its own title.
+    const conflict = await fail('kortix_agents', 'create', 'Could not create the agent', { kind: 'invalid', message: 'name taken (409)' }, context)
+    expect(conflict.card).toEqual({ title: 'Could not create the agent', status: 'error' })
+    const noted = await fail('kortix_memory', 'list', 'Memory is off in this workspace', { kind: 'failed', message: 'model text', note: 'Files is off.' }, context)
+    expect(noted.card).toEqual({ title: 'Memory is off in this workspace', subtitle: 'Files is off.', status: 'error' })
   })
 })

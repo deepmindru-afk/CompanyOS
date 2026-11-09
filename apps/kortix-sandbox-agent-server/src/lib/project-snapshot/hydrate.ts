@@ -8,6 +8,7 @@ import { logger } from '../log/logger'
 import type { ProjectSnapshotDescriptor } from './contract'
 import { fetchProjectSnapshotDescriptor } from './descriptor'
 import { ProjectSnapshotError, errorMessage, type S3FailureReason } from './errors'
+import { retryable, snapshotBackoff } from './retry'
 import { streamObject, type SnapshotTransferOptions } from './transfer'
 
 /** Hydration runs after readiness: its own attempts and budget. */
@@ -134,8 +135,8 @@ export async function hydrateProjectSnapshotBlobs(
           break
         }
       }
-      if (!failure.retryable || attempts >= HYDRATION_MAX_ATTEMPTS) break
-      const backoff = 500 * 2 ** (attempts - 1) + Math.floor(Math.random() * 250)
+      if (!retryable(failure) || attempts >= HYDRATION_MAX_ATTEMPTS) break
+      const backoff = snapshotBackoff(attempts, 500)
       logger.warn('[project-snapshot] hydration attempt failed; retrying', {
         attempt: attempts,
         reason: failure.reason,

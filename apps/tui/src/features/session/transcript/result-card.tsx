@@ -7,6 +7,7 @@
  *
  * The tool returns a `KortixToolResult` (`parseKortixToolResult`, SDK); its
  * `card` is written for people: a headline, a subtitle and a few rows.
+ * `error.message` is written for the model and never prints.
  */
 
 import type { KortixToolResult } from '@kortix/sdk';
@@ -39,11 +40,6 @@ export function ResultCard({ result, width }: { result: KortixToolResult; width:
         <span fg={theme.fg}>{clip(printable(card.title), inner - 2)}</span>
         <span fg={theme.dim}>{card.subtitle ? ` · ${clip(printable(card.subtitle), Math.max(inner - card.title.length - 6, 8))}` : ''}</span>
       </text>
-      {result.error ? (
-        <text fg={theme.danger} wrapMode="none">
-          {`  ${clip(printable(result.error.message), inner - 2)}`}
-        </text>
-      ) : null}
       {shown.map((row, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: card rows have no id
         <text key={index} wrapMode="none">
@@ -53,6 +49,15 @@ export function ResultCard({ result, width }: { result: KortixToolResult; width:
         </text>
       ))}
       {rows.length > shown.length ? <text fg={theme.faint}>{`  … ${rows.length - shown.length} more`}</text> : null}
+      {/* A sign-in or save link is the card's action: printed whole, so a terminal can open it. */}
+      {(card.links ?? [])
+        .filter((link) => link.external)
+        .map((link) => (
+          <text key={link.href} wrapMode="none">
+            <span fg={theme.fg}>{`  ${printable(link.label)}: `}</span>
+            <span fg={theme.brand}>{printable(link.href)}</span>
+          </text>
+        ))}
     </box>
   );
 }

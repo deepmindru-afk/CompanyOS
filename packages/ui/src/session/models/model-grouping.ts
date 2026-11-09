@@ -150,3 +150,62 @@ export function buildPickerSections(
     models: group.models,
   }));
 }
+
+/**
+ * The picker's left rail: Favorites, then where a model comes from. `kortix`
+ * holds the managed set, `chatgpt` the models billed to a connected ChatGPT
+ * plan, and every provider the workspace connected itself gets its own tab,
+ * keyed by its real provider id (`pickerGroupId`: `anthropic`, `deepseek`, …).
+ */
+export type PickerTabId = 'favorites' | 'kortix' | 'chatgpt' | (string & {});
+
+export function pickerTabOf(model: Pick<FlatModel, 'providerID' | 'modelID' | 'provider'>): string {
+  if (model.provider === 'codex' || model.modelID.startsWith('codex/')) return 'chatgpt';
+  return pickerGroupId(model as FlatModel);
+}
+
+/**
+ * The rail's tabs, in order: Favorites (always: it is where a star lands, and
+ * its empty state says how to fill it), Kortix, ChatGPT, then each provider in
+ * `providerOrder` (the picker's provider order), then the rest by id. A source
+ * tab shows only when it holds a model, except ChatGPT, which also shows when
+ * the member can connect a ChatGPT plan from it.
+ */
+export function pickerTabs(
+  models: readonly Pick<FlatModel, 'providerID' | 'modelID' | 'provider'>[],
+  opts: { canConnectChatGpt?: boolean; providerOrder?: readonly string[] } = {},
+): PickerTabId[] {
+  const present = new Set(models.map(pickerTabOf));
+  const tabs: PickerTabId[] = ['favorites'];
+  if (present.has('kortix')) tabs.push('kortix');
+  if (present.has('chatgpt') || opts.canConnectChatGpt) tabs.push('chatgpt');
+  const order = opts.providerOrder ?? [];
+  const rank = (id: string) => {
+    const i = order.indexOf(id);
+    return i === -1 ? order.length : i;
+  };
+  const providers = [...present]
+    .filter((id) => id !== 'kortix' && id !== 'chatgpt')
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return [...tabs, ...providers];
+}
+
+/**
+ * The tab the picker opens on: Favorites when the current model is starred,
+ * else the tab that holds the current model, else Favorites when anything is
+ * starred, else the first source tab.
+ */
+export function initialPickerTab(input: {
+  tabs: readonly PickerTabId[];
+  selected: Pick<FlatModel, 'providerID' | 'modelID' | 'provider'> | null | undefined;
+  selectedIsFavorite: boolean;
+  hasFavorites: boolean;
+}): PickerTabId {
+  if (input.selected && input.selectedIsFavorite) return 'favorites';
+  if (input.selected) {
+    const tab = pickerTabOf(input.selected);
+    if (input.tabs.includes(tab)) return tab;
+  }
+  if (input.hasFavorites) return 'favorites';
+  return input.tabs.find((t) => t !== 'favorites') ?? 'favorites';
+}

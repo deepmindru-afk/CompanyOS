@@ -33,7 +33,7 @@ export function loadClaudeSdk(): Promise<typeof SDK> {
  */
 export const CLAUDE_GATEWAY_PLACEHOLDER_TOKEN = 'sk-ant-oat01-kortix-gateway-placeholder'
 
-export interface ClaudeGateway {
+interface ClaudeGateway {
   /** Claude Code's `ANTHROPIC_BASE_URL`: the gateway's Claude Code passthrough. */
   baseUrl: string
   /** Claude Code's `CLAUDE_CODE_OAUTH_TOKEN`: the placeholder (proxy) or the session's gateway token. */
@@ -69,7 +69,7 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined {
 }
 
 /** Where every Kortix image installs Claude Code (`CLAUDE_CODE_PATH` in @kortix/shared). */
-export const IMAGE_CLAUDE_PATH = '/opt/kortix/claude/bin/claude'
+const IMAGE_CLAUDE_PATH = '/opt/kortix/claude/bin/claude'
 
 /** The `claude` binary: `KORTIX_CLAUDE_PATH`, else the image's, else `claude` on PATH. */
 export function claudeExecutable(env: NodeJS.ProcessEnv = process.env): string | undefined {

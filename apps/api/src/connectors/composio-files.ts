@@ -9,6 +9,7 @@
  * guard, uploads the bytes to Composio, and puts Composio's reference in its
  * place. A reference that already holds a non-URL `s3key` passes unchanged.
  */
+import { isRecord } from '@kortix/shared/guards';
 import { safeEgressFetch } from '../shared/ssrf-guard';
 
 export interface FileRef {
@@ -33,9 +34,6 @@ const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 /** Most files one call uploads, the same as a call's staged attachments. */
 const MAX_FILES = 20;
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function httpUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -81,9 +79,9 @@ async function walk(value: unknown, schema: Schema | undefined, field: string, u
     return walk(value, variant, field, upload);
   }
   if (schema.file_uploadable) {
-    const url = httpUrl(value) ?? (isObject(value) ? (httpUrl(value.s3key) ?? httpUrl(value.url)) : null);
+    const url = httpUrl(value) ?? (isRecord(value) ? (httpUrl(value.s3key) ?? httpUrl(value.url)) : null);
     if (!url) return value;
-    const hint = isObject(value)
+    const hint = isRecord(value)
       ? {
           ...(typeof value.name === 'string' && value.name ? { name: value.name } : {}),
           ...(typeof value.mimetype === 'string' && value.mimetype ? { mimetype: value.mimetype } : {}),
@@ -104,7 +102,7 @@ async function walk(value: unknown, schema: Schema | undefined, field: string, u
     for (const [i, item] of value.entries()) out.push(await walk(item, schema.items, `${field}[${i}]`, upload));
     return out;
   }
-  if (isObject(value) && schema.properties) {
+  if (isRecord(value) && schema.properties) {
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       out[key] = await walk(entry, schema.properties[key], field ? `${field}.${key}` : key, upload);

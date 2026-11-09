@@ -1,5 +1,6 @@
 'use client';
 
+import { SubscriptionOffer } from '../../session/models/subscription-offer';
 import { useLayoutEffect, useState, type ReactNode } from 'react';
 
 import { HashIcon, XIcon } from '@phosphor-icons/react';
@@ -198,6 +199,7 @@ export function ProjectHomeWelcomeBody({
           {sentTurn ? <div className="w-full px-4">{sentTurn}</div> : null}
 
           {composer ? <div className="flex w-full flex-col gap-4">{composer}</div> : null}
+          {composer && !sentTurn ? <SubscriptionOffer projectId={projectId} /> : null}
 
         </div>
 

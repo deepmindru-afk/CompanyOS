@@ -10,13 +10,18 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { accounts, connectorActions, connectorProjectPolicies, connectorPolicySets, connectors, projects } from '@kortix/db';
-import { and, eq } from 'drizzle-orm';
+import { accounts, connectorActions, connectorPolicies, connectorProjectPolicies, connectorPolicySets, connectors, projects } from '@kortix/db';
+import { and, eq, sql } from 'drizzle-orm';
 import { parse as parseYaml } from 'yaml';
 
 import { dbConnectorRouterDeps } from '../connectors/db-deps';
 import { getConnectorPolicies } from '../connectors/db-deps-admin';
-import { loadConnectorPoliciesFor, loadConnectorPolicySetFor } from '../connectors/db-deps-rows';
+import {
+  loadConnectorPoliciesFor,
+  loadConnectorPoliciesForMany,
+  loadConnectorPolicySetFor,
+  loadProjectPoliciesFor,
+} from '../connectors/db-deps-rows';
 import {
   deleteConnectorPolicySetInManifest,
   getConnectorPoliciesFromManifest,
@@ -128,6 +133,31 @@ describe('connector policy sets', () => {
     // An empty set exists (rules []); an unknown set is missing (null → block).
     expect(await loadConnectorPolicySetFor(id, 'empty')).toEqual([]);
     expect(await loadConnectorPolicySetFor(id, 'nope')).toBeNull();
+  });
+
+  test('the three policy row loaders project one Policy shape; malformed conditions fail closed', async () => {
+    const id = await connectorId();
+    // A stored conditions value that is not a valid condition list (a direct SQL
+    // edit, or a row written before validation existed) must fail closed:
+    // `conditionsInvalid`, never a silent drop of the restriction. Seeded as a
+    // raw jsonb fragment, the way a hand-written row would arrive.
+    await db.insert(connectorPolicies).values({
+      connectorId: id, match: 'purg_*', action: 'block', position: 7, conditions: sql`'{"arg":"to"}'::jsonb`,
+    });
+    const single = await loadConnectorPoliciesFor(id);
+    expect(await loadConnectorPoliciesForMany([id])).toEqual(new Map([[id, single]]));
+    expect(single).toContainEqual({
+      match: 'purg_*', action: 'block', position: 7, conditions: null, conditionsInvalid: true,
+    });
+    // The project loader projects the same shape from connector_project_policies.
+    await db.insert(connectorProjectPolicies).values({
+      projectId: PROJECT, match: `${SLUG}.purg_*`, action: 'block', position: 7, conditions: sql`'{"arg":"to"}'::jsonb`,
+    });
+    expect(await loadProjectPoliciesFor(PROJECT)).toContainEqual({
+      match: `${SLUG}.purg_*`, action: 'block', position: 7, conditions: null, conditionsInvalid: true,
+    });
+    await db.delete(connectorPolicies).where(eq(connectorPolicies.match, 'purg_*'));
+    await db.delete(connectorProjectPolicies).where(eq(connectorProjectPolicies.match, `${SLUG}.purg_*`));
   });
 
   test('the effective view resolves as an agent holding the set would', async () => {

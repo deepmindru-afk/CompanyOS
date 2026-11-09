@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { FlatModel } from '@kortix/sdk/react';
-import { buildPickerSections, isPickerGroupOpen, modelItemValue, pickerGroupId, pickerGroupLabel, splitModelLabel } from './model-grouping';
+import { buildPickerSections, initialPickerTab, isPickerGroupOpen, modelItemValue, pickerGroupId, pickerGroupLabel, pickerTabOf, pickerTabs, splitModelLabel } from './model-grouping';
 
 // Regression coverage for the "every provider shows as Kortix" picker bug.
 //
@@ -288,5 +288,51 @@ describe('buildPickerSections', () => {
   test('sections carry no credential chooser; provider keys live in Session overrides', () => {
     const [section] = buildPickerSections([group]);
     expect(Object.keys(section!).sort()).toEqual(['id', 'label', 'models', 'providerID']);
+  });
+});
+
+describe('picker rail tabs', () => {
+  const managed = { providerID: 'kortix', modelID: 'glm-5.3-flash', provider: 'kortix' };
+  const chatgpt = { providerID: 'kortix', modelID: 'codex/gpt-6.1-sol', provider: 'codex' };
+  const anthropic = { providerID: 'kortix', modelID: 'anthropic/claude-opus-5-5', provider: 'anthropic' };
+  const deepseek = { providerID: 'kortix', modelID: 'deepseek/deepseek-v4', provider: 'deepseek' };
+  const claudePlan = { providerID: 'claude-agent', modelID: 'claude-opus-5-5' };
+
+  test('each model lands in exactly one tab: Kortix, ChatGPT, or its own provider', () => {
+    expect(pickerTabOf(managed)).toBe('kortix');
+    expect(pickerTabOf(chatgpt)).toBe('chatgpt');
+    expect(pickerTabOf({ providerID: 'kortix', modelID: 'codex/gpt-6-luna' })).toBe('chatgpt');
+    expect(pickerTabOf(anthropic)).toBe('anthropic');
+    expect(pickerTabOf(claudePlan)).toBe('claude-agent');
+  });
+
+  test('Favorites first, then Kortix, ChatGPT, then providers in picker order; empty tabs left out', () => {
+    expect(pickerTabs([deepseek, anthropic, managed], { providerOrder: ['kortix', 'anthropic', 'deepseek'] })).toEqual([
+      'favorites',
+      'kortix',
+      'anthropic',
+      'deepseek',
+    ]);
+    expect(pickerTabs([])).toEqual(['favorites']);
+  });
+
+  test('providers outside the picker order follow it, by id', () => {
+    expect(pickerTabs([deepseek, anthropic], { providerOrder: ['deepseek'] })).toEqual([
+      'favorites',
+      'deepseek',
+      'anthropic',
+    ]);
+  });
+
+  test('ChatGPT shows with no models when the member can connect a plan', () => {
+    expect(pickerTabs([managed], { canConnectChatGpt: true })).toEqual(['favorites', 'kortix', 'chatgpt']);
+  });
+
+  test('the picker opens where the current model is', () => {
+    const tabs = pickerTabs([managed, chatgpt, anthropic]);
+    expect(initialPickerTab({ tabs, selected: anthropic, selectedIsFavorite: false, hasFavorites: true })).toBe('anthropic');
+    expect(initialPickerTab({ tabs, selected: chatgpt, selectedIsFavorite: true, hasFavorites: true })).toBe('favorites');
+    expect(initialPickerTab({ tabs, selected: null, selectedIsFavorite: false, hasFavorites: true })).toBe('favorites');
+    expect(initialPickerTab({ tabs, selected: null, selectedIsFavorite: false, hasFavorites: false })).toBe('kortix');
   });
 });

@@ -7,7 +7,7 @@ import {
   PROVIDER_LABELS as SHARED_PROVIDER_LABELS,
 } from '@kortix/llm-catalog';
 import { KortixLogo } from '../../primitives/kortix-logo';
-import { useUiHostConfig, useUiImage } from '../../providers/ui-provider';
+import { useUiBrand, useUiHostConfig, useUiImage } from '../../providers/ui-provider';
 import { useState } from 'react';
 
 export const POPULAR_PROVIDER_IDS = [
@@ -179,6 +179,11 @@ export function ProviderLogo({
   const [failedSrc, setFailedSrc] = useState<string>();
   const kortix = providerID === 'kortix';
   const platinum = providerID === 'platinum';
+  // An organization's own icon (Enterprise branding) is a full picture, not a
+  // glyph: it fills the box (`object-cover`) and is clipped to the corner,
+  // instead of shrinking to a mark inside a grey tile.
+  const brand = useUiBrand();
+  const brandImage = kortix && !!brand?.icon_url;
   const iconSrc = kortix || platinum ? undefined : providerIconSrc(providerID, providerIconBaseUrl);
   const src = iconSrc === failedSrc ? undefined : iconSrc;
 
@@ -210,10 +215,13 @@ export function ProviderLogo({
         (src || kortix || platinum) && size === 'xs' ? 'bg-transparent' : light ? LOGO_TILE_LIGHT : 'bg-muted rounded-md',
         sizeClasses[size],
         className,
+        brandImage && cn('overflow-hidden bg-transparent', size === 'xs' ? 'rounded-sm' : 'rounded-md'),
       )}
       aria-hidden="true"
     >
-      {kortix ? (
+      {brandImage ? (
+        <KortixLogo variant="icon" className="object-cover" style={{ width: '100%', height: '100%' }} />
+      ) : kortix ? (
         // The host's brand mark (`useBrand` icon), else the Kortix symbol in currentColor.
         <KortixLogo
           variant="icon"
@@ -246,6 +254,9 @@ export function ProviderLogo({
           onError={() => setFailedSrc(src)}
           className={cn(
             'object-contain',
+            // Inline, the mark IS the box: a caller that sizes the box sizes
+            // the logo, so every provider matches a star or a Kortix mark.
+            size === 'xs' && 'size-full',
             !light && 'dark:invert',
           )}
         />

@@ -370,7 +370,8 @@ function normalizeSurface(value: unknown, index: number): ConnectorSurfaceVarian
   return null;
 }
 
-function boundedCount(value: number | undefined, fallback: number, max: number): number {
+/** A caller-supplied count clamped to `[fallback, max]`: `undefined`/non-positive → the fallback. */
+export function boundedCount(value: number | undefined, fallback: number, max: number): number {
   return value && value > 0 ? Math.min(Math.floor(value), max) : fallback;
 }
 

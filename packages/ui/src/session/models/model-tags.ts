@@ -31,23 +31,34 @@ export function isClaudeSubscriptionModel(model: { provider?: string | null; pro
 }
 
 /**
- * What the picker prints for a model.
- *
- * The gateway appends " (ChatGPT)" to every subscription model's name
- * (`picker-catalog.ts`, `catalog-models.ts`) so surfaces with no grouping —
- * the CLI, `/v1/models` — can still tell `gpt-6-astra` from
- * `codex/gpt-6-astra`. The picker HAS grouping: the rows already sit under a
- * "ChatGPT subscription" heading, so the suffix repeated the heading on every
- * row and pushed the real name off the same column as its managed twin.
+ * A trailing parenthetical that names how a model is billed, not what it is:
+ * "(ChatGPT)", "(Claude subscription)", "(Anthropic plan)". The gateway and
+ * the plan catalogs append these so ungrouped surfaces (the CLI, `/v1/models`)
+ * can tell a plan model from its metered twin. `[^()]*` keeps the match
+ * linear (CodeQL js/polynomial-redos) and inside one pair of parentheses.
+ */
+const PLAN_SUFFIX = /\((?:ChatGPT|Claude|Anthropic)(?: [^()]*)?\)$/i;
+/** A suffix that says it is a plan, on any model. */
+const EXPLICIT_PLAN_SUFFIX = /\([^()]*\b(?:subscription|plan)\)$/i;
+
+/**
+ * What the picker prints for a model: its name without the plan suffix. The
+ * picker shows the plan another way (the ChatGPT tab, the provider's tab), so
+ * the suffix only pushed the real name off the trigger and out of the column.
  *
  * Display only. Search, aria labels and every stored id keep the full name, so
  * typing "chatgpt" still finds these rows.
  */
 export function pickerModelName(
-  model: Pick<FlatModel, 'modelID' | 'modelName'> & { provider?: string | null },
+  model: Pick<FlatModel, 'modelID' | 'modelName'> & {
+    provider?: string | null;
+    providerID?: string;
+  },
 ): string {
-  if (!isSubscriptionModel(model)) return model.modelName;
-  // No leading `\s*`: `.trim()` drops those spaces, and `\s*\(` backtracks
-  // quadratically on a long space run (CodeQL js/polynomial-redos).
-  return model.modelName.replace(/\(ChatGPT\)\s*$/, '').trim() || model.modelName;
+  const name = model.modelName.trim();
+  // A bare "(ChatGPT)" on a model that is NOT on a plan is part of its name.
+  const onPlan = isSubscriptionModel(model) || isClaudeSubscriptionModel(model);
+  let stripped = name.replace(EXPLICIT_PLAN_SUFFIX, '');
+  if (onPlan) stripped = stripped.replace(PLAN_SUFFIX, '');
+  return stripped.trim() || model.modelName;
 }

@@ -358,6 +358,32 @@ const MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES = 64 * 1024 * 1024
 
 const REMOTE_FAST_BOOT_BUNDLE_TIMEOUT_MS = 30_000
 
+/**
+ * The delta import's fallback contract, defined once for both delta paths:
+ * `run` writes and applies the bundle at `bundlePath`; any failure logs the
+ * fetch-fallback line and answers `false` (the caller fetches the base
+ * itself); the temp file is always removed. The paths keep their own write
+ * step (base64 decode vs stream with a byte cap) and their own caps.
+ */
+async function withDeltaBundle(
+  repoPath: string,
+  name: string,
+  describe: string,
+  run: (bundlePath: string) => Promise<boolean>,
+): Promise<boolean> {
+  const bundlePath = join(repoPath, name)
+  try {
+    return await run(bundlePath)
+  } catch (error) {
+    logger.info(`[git] ${describe} unavailable; using authenticated fetch`, {
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error),
+    })
+    return false
+  } finally {
+    await rm(bundlePath, { force: true }).catch(() => {})
+  }
+}
+
 /** Import a bounded API-generated Git bundle only when it resolves to baseSha. */
 async function applyFastBootDeltaBundle(
   repoPath: string,
@@ -377,18 +403,10 @@ async function applyFastBootDeltaBundle(
   ) return false
   const bytes = Buffer.from(bundleBase64, 'base64')
   if (bytes.toString('base64') !== bundleBase64) return false
-  const bundlePath = join(repoPath, '.kortix-fast-boot.bundle')
-  try {
+  return withDeltaBundle(repoPath, '.kortix-fast-boot.bundle', 'API delta bundle', async (bundlePath) => {
     await writeFile(bundlePath, bytes, { mode: 0o600 })
-    return await applyFastBootDeltaBundleFile(repoPath, base, baseSha, bundlePath, parentSha, parentCommitBase64)
-  } catch (error) {
-    logger.info('[git] API delta bundle unavailable; using authenticated fetch', {
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error),
-    })
-    return false
-  } finally {
-    await rm(bundlePath, { force: true }).catch(() => {})
-  }
+    return applyFastBootDeltaBundleFile(repoPath, base, baseSha, bundlePath, parentSha, parentCommitBase64)
+  })
 }
 
 /**
@@ -421,60 +439,58 @@ async function applyRemoteFastBootDeltaBundle(
 ): Promise<boolean> {
   if (!cfg.repoUrl || !cfg.sandboxToken) return false
   if (!/^[0-9a-f]{40}$/i.test(baseSha) || !/^[0-9a-f]{40}$/i.test(parentSha)) return false
-  const bundlePath = join(repoPath, '.kortix-fast-boot-remote.bundle')
+  const { repoUrl, sandboxToken } = cfg
   const started = Date.now()
-  try {
-    const res = await fetchImpl(buildFastBootBundleUrl(cfg.repoUrl, base, baseSha, parentSha), {
-      headers: { accept: 'application/x-git-bundle', authorization: `Bearer ${cfg.sandboxToken}` },
-      signal: AbortSignal.timeout(REMOTE_FAST_BOOT_BUNDLE_TIMEOUT_MS),
-    })
-    if (!res.ok) {
-      const detail = (await res.text().catch(() => '')).trim().slice(0, 200)
-      throw new Error(`fast-boot bundle HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
-    }
-    const declared = Number(res.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES) {
-      throw new Error(`fast-boot bundle exceeds ${MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES} bytes (${declared})`)
-    }
-    if (!res.body) throw new Error('fast-boot bundle response body is empty')
-    // Stream to the stage file under a hard byte cap — never buffer an
-    // upstream body in memory, never trust its length header alone. The
-    // bytes are then verified by `git bundle verify` + the baseSha check
-    // before anything is checked out.
-    let bytes = 0
-    const capped = new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        bytes += chunk.length
-        if (bytes > MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES) {
-          callback(new Error(`fast-boot bundle exceeds ${MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES} bytes`))
-          return
-        }
-        callback(null, chunk)
-      },
-    })
-    await pipeline(
-      Readable.fromWeb(res.body as never),
-      capped,
-      createWriteStream(bundlePath, { mode: 0o600 }),
-    )
-    if (bytes === 0) throw new Error('fast-boot bundle response body is empty')
-    const ok = await applyFastBootDeltaBundleFile(repoPath, base, baseSha, bundlePath, parentSha, parentCommitBase64)
-    if (ok) {
-      logger.info('[git] remote fast-boot bundle applied', {
-        bytes,
-        ms: Date.now() - started,
-        cache: res.headers.get('x-kortix-artifact-cache'),
+  return withDeltaBundle(
+    repoPath,
+    '.kortix-fast-boot-remote.bundle',
+    'remote API delta bundle',
+    async (bundlePath) => {
+      const res = await fetchImpl(buildFastBootBundleUrl(repoUrl, base, baseSha, parentSha), {
+        headers: { accept: 'application/x-git-bundle', authorization: `Bearer ${sandboxToken}` },
+        signal: AbortSignal.timeout(REMOTE_FAST_BOOT_BUNDLE_TIMEOUT_MS),
       })
-    }
-    return ok
-  } catch (error) {
-    logger.info('[git] remote API delta bundle unavailable; using authenticated fetch', {
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error),
-    })
-    return false
-  } finally {
-    await rm(bundlePath, { force: true }).catch(() => {})
-  }
+      if (!res.ok) {
+        const detail = (await res.text().catch(() => '')).trim().slice(0, 200)
+        throw new Error(`fast-boot bundle HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
+      }
+      const declared = Number(res.headers.get('content-length'))
+      if (Number.isFinite(declared) && declared > MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES) {
+        throw new Error(`fast-boot bundle exceeds ${MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES} bytes (${declared})`)
+      }
+      if (!res.body) throw new Error('fast-boot bundle response body is empty')
+      // Stream to the stage file under a hard byte cap — never buffer an
+      // upstream body in memory, never trust its length header alone. The
+      // bytes are then verified by `git bundle verify` + the baseSha check
+      // before anything is checked out.
+      let bytes = 0
+      const capped = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytes += chunk.length
+          if (bytes > MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES) {
+            callback(new Error(`fast-boot bundle exceeds ${MAX_REMOTE_FAST_BOOT_BUNDLE_BYTES} bytes`))
+            return
+          }
+          callback(null, chunk)
+        },
+      })
+      await pipeline(
+        Readable.fromWeb(res.body as never),
+        capped,
+        createWriteStream(bundlePath, { mode: 0o600 }),
+      )
+      if (bytes === 0) throw new Error('fast-boot bundle response body is empty')
+      const ok = await applyFastBootDeltaBundleFile(repoPath, base, baseSha, bundlePath, parentSha, parentCommitBase64)
+      if (ok) {
+        logger.info('[git] remote fast-boot bundle applied', {
+          bytes,
+          ms: Date.now() - started,
+          cache: res.headers.get('x-kortix-artifact-cache'),
+        })
+      }
+      return ok
+    },
+  )
 }
 
 /**
@@ -531,11 +547,6 @@ async function applyFastBootDeltaBundleFile(
     // The scaffold clone left origin/<base> on the scaffold root.
     await establishBaseRefs(repoPath, base, baseSha)
     return true
-  } catch (error) {
-    logger.info('[git] API delta bundle unavailable; using authenticated fetch', {
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error),
-    })
-    return false
   } finally {
     await rm(parentCommitPath, { force: true }).catch(() => {})
   }

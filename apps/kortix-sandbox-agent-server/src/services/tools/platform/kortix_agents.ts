@@ -165,7 +165,6 @@ async function models(context: PlatformToolContext) {
     'models',
     {
       title: usable.length === 1 ? '1 model' : `${usable.length} models`,
-      subtitle: 'Pass an id as `model` to a hand-off, a workflow agent or an agent setting.',
       rows: capRows(
         usable.map((model) => ({
           title: model.name,

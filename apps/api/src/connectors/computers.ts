@@ -15,6 +15,7 @@ import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../shared/db';
 import { connectConnection, revokeConnections } from './connection-status';
 import type { ActionBinding, NormalizedAction, Risk } from './types';
+import { actionInputSchema } from './types';
 import cuaDriverTools from './cua-driver-tools.generated.json';
 
 /** Default name of a project's computer connector. */
@@ -235,13 +236,7 @@ function cuaAction(def: (typeof CUA_ACTIONS)[number]): NormalizedAction {
 
 function toAction(def: ComputerActionDef): NormalizedAction {
   const binding: ActionBinding = { kind: 'tunnel', method: def.method };
-  const inputSchema = Object.keys(def.properties).length
-    ? {
-        type: 'object',
-        properties: def.properties,
-        ...(def.required.length ? { required: def.required } : {}),
-      }
-    : null;
+  const inputSchema = actionInputSchema(def.properties, def.required);
   return {
     path: def.path,
     name: def.name,

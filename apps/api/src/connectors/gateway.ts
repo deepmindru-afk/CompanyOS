@@ -33,6 +33,7 @@ import {
   executeCall,
   mcpJsonRpcError,
   paramHintsFromSchema,
+  missingPathArg,
 } from './call';
 import { configuredTimeoutMs, withTimeout } from '../shared/with-timeout';
 /**
@@ -924,6 +925,23 @@ export async function handleCall(deps: GatewayDeps, input: CallInput): Promise<C
   if (undeclared) {
     await audit(deps, input, connector, 'denied', action.risk, { reason: INVALID_ARGS, message: undeclared });
     return { status: 'denied', reason: INVALID_ARGS, message: undeclared };
+  }
+
+  // A path argument the caller left empty goes out as an empty URL segment and
+  // the provider answers a misleading error for the truncated URL — Stripe:
+  // `GET /v1/payment_intents/` 404 "Unrecognized request URL" (prod 2026-11-09:
+  // a caller refetched without the id 101 times in one burst, KRTX-4539).
+  // Answer here with the argument the caller must fill, before any credential,
+  // approval or upstream call. Channel calls fill their path values from the
+  // session context later, so they are exempt.
+  const emptyPathArg =
+    connector.provider !== 'channel' && (action.binding.kind === 'openapi' || action.binding.kind === 'http')
+      ? missingPathArg(action.binding.path, input.args)
+      : null;
+  if (emptyPathArg !== null) {
+    const message = `The required argument ${emptyPathArg} is missing or empty. Call ${fullPath} again with a non-empty ${emptyPathArg}.`;
+    await audit(deps, input, connector, 'denied', action.risk, { reason: INVALID_ARGS, message });
+    return { status: 'denied', reason: INVALID_ARGS, message };
   }
 
   // Before any credential, approval or provider call: a read of another

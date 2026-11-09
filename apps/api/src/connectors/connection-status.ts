@@ -31,7 +31,7 @@ type ConnectionRow = typeof connectorConnections.$inferSelect;
 type ConnectionSet = PgUpdateSetSource<typeof connectorConnections>;
 type ConnectionStatus = ConnectionRow['status'];
 
-export const CONNECTION_TRANSITIONS = {
+const CONNECTION_TRANSITIONS = {
   connect: { from: ['active', 'error', 'revoked'], to: 'active' },
   complete: { from: ['active', 'error', 'revoked'], to: 'active' },
   fail: { from: ['active', 'error'], to: 'error' },

@@ -15,7 +15,6 @@ import {
 } from '@kortix/ui/modal';
 import { Skeleton } from '@kortix/ui/skeleton';
 import { DEFAULT_TIER_USD, formatWholeUsd, tierForMonthlyUsd } from '@kortix/ui/internal/billing/compute-pricing';
-import { CreditTierSelect } from '@/features/billing/credit-tier-select';
 import { FreeGrantNotice } from '@/features/billing/free-grant-notice';
 import { PlanChanger } from '@/features/billing/plan-card';
 import { PricingPlanCard } from '@/features/billing/pricing-plan-card';
@@ -24,6 +23,8 @@ import { TopupControls } from '@/features/billing/topup-controls';
 import { useChangeCreditPlan } from '@/features/billing/use-change-credit-plan';
 import { useUpgradePlans } from '@/features/billing/use-pricing-plans';
 import { useUpgradeModalHost } from '@/features/billing/use-upgrade-modal-host';
+import { MarketingButton } from '@/features/marketing/kit/marketing-button';
+import { CreditLadder } from '@/features/marketing/pricing/credit-ladder';
 import { useTalkToSales } from '@/features/billing/use-enterprise-sales';
 import { invalidateAccountState, useAccountState, useCreatePortalSession } from '@kortix/ui/internal/billing/index';
 import { useLocale, useTranslations } from '@/i18n/use-translations';
@@ -126,14 +127,15 @@ export function UpgradePlansModal({
 
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
-      <ModalContent className="gap-0 space-y-0 p-0 lg:max-w-3xl">
-        <ModalHeader className="space-y-2 px-6 pt-6 pb-4">
-          <ModalTitle className="text-2xl font-medium tracking-tight">{t('title')}</ModalTitle>
-          <ModalDescription className="text-base">{t('description')}</ModalDescription>
+      <ModalContent variant="base" className="gap-0 space-y-0 p-0 lg:max-w-4xl">
+        <ModalHeader className="space-y-2 px-6 pt-7 pb-6 md:px-8">
+          <ModalTitle className="text-2xl font-medium tracking-tight text-balance">{t('title')}</ModalTitle>
+          <ModalDescription className="max-w-xl text-sm text-pretty">{t('description')}</ModalDescription>
         </ModalHeader>
 
-        <ModalBody className="space-y-4 px-6 pb-6">
-          <div className="grid gap-4 md:grid-cols-2">
+        {/* The /pricing plans band: hairlines top and bottom, one between the columns. */}
+        <ModalBody className="p-0">
+          <div className="divide-border grid grid-cols-1 divide-y border-y md:grid-cols-2 md:divide-x md:divide-y-0">
             {plans.map((plan) => (
               <UpgradePlanCard
                 key={plan.id}
@@ -144,7 +146,9 @@ export function UpgradePlansModal({
               />
             ))}
           </div>
+        </ModalBody>
 
+        <div className="space-y-4 px-6 py-4 md:px-8">
           <p className="text-muted-foreground text-center text-xs">
             {tI18nHardcoded.raw('i18nComplete.textff2b8e88c520')}{' '}
             <button
@@ -172,7 +176,7 @@ export function UpgradePlansModal({
               </ItemContent>
             </Item>
           )}
-        </ModalBody>
+        </div>
       </ModalContent>
     </Modal>
   );
@@ -180,7 +184,7 @@ export function UpgradePlansModal({
 
 /**
  * One card of the plan view. Free closes the dialog. Credits carries the
- * shared tier select and starts the plan change; its own state, so the tier
+ * credits ladder and starts the plan change; its own state, so the tier
  * survives re-renders of the modal.
  */
 function UpgradePlanCard({
@@ -206,12 +210,17 @@ function UpgradePlanCard({
     return (
       <PricingPlanCard
         plan={plan}
-        compact
         badgeOverride={tPlan('currentPlan')}
         action={
-          <Button type="button" variant="outline" className="w-full" onClick={onContinueFree}>
+          <MarketingButton
+            type="button"
+            size="md"
+            variant="secondary"
+            className="hit-area-y-1 w-full"
+            onClick={onContinueFree}
+          >
             {tI18nHardcoded.raw('i18nComplete.text73a7da68c3bf')}
-          </Button>
+          </MarketingButton>
         }
       />
     );
@@ -221,23 +230,31 @@ function UpgradePlanCard({
   return (
     <PricingPlanCard
       plan={plan}
-      compact
       priceSlot={
-        <div className="space-y-3">
-          <CreditTierSelect value={monthlyUsd} onChange={setMonthlyUsd} disabled={isPending} />
-          <p className="text-muted-foreground text-xs text-balance">{tCard('rate')}</p>
-        </div>
+        <CreditLadder
+          value={monthlyUsd}
+          onChange={setMonthlyUsd}
+          disabled={isPending}
+          stackBelowXl={false}
+        />
       }
       action={
         ownerRequired ? (
-          <Button type="button" variant="outline" className="w-full" disabled>
-            {tAccess('managerRequired')}
-          </Button>
-        ) : (
-          <Button
+          <MarketingButton
             type="button"
-            variant="default"
-            className="group w-full"
+            size="md"
+            variant="secondary"
+            className="hit-area-y-1 w-full"
+            disabled
+          >
+            {tAccess('managerRequired')}
+          </MarketingButton>
+        ) : (
+          <MarketingButton
+            type="button"
+            size="md"
+            variant="primary"
+            className="group hit-area-y-1 w-full"
             disabled={isPending || !mayManageBilling || !valid}
             onClick={() => valid && change(monthlyUsd)}
           >
@@ -253,10 +270,10 @@ function UpgradePlanCard({
                 {valid
                   ? tCard('subscribeAction', { amount: formatWholeUsd(monthlyUsd, locale) })
                   : tCard('chooseAction')}
-                <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight className="transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
               </>
             )}
-          </Button>
+          </MarketingButton>
         )
       }
     />

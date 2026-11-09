@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { loadHostConfig as loadConfig } from '@/lib/config/config'
+import { logger } from '@/lib/log/logger'
 import { isShallowRepo } from '@/services/workspace-provider/checkout'
 import { __setScaffoldRepoPathForTests, buildFastBootBundleUrl, materializeRepo } from '@/services/workspace-provider/git'
 
@@ -205,6 +206,35 @@ describe('fast-boot delta materialization', () => {
     expect(git(p.target, 'rev-parse', 'HEAD')).toBe(baseSha)
     expect(git(p.target, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('sess-1')
     expect(readFileSync(join(p.target, 'README.md'), 'utf8')).toBe('project setup\n')
+  })
+
+  // Characterization (KRTX-4538): a failing delta apply logs the
+  // fetch-fallback line, answers false — the caller fetches the base itself —
+  // and leaves no fast-boot temp file in the materialized repo.
+  test('a failing delta apply logs the fallback line and leaves no fast-boot files behind', async () => {
+    const p = seed(2)
+    globalThis.fetch = (async () => {
+      throw new Error('network must not be touched')
+    }) as unknown as typeof fetch
+    const logs: string[] = []
+    const info = spyOn(logger, 'info').mockImplementation((msg: string) => {
+      logs.push(msg)
+    })
+    const cfg = loadConfig({
+      ...baseEnv(p, `file://${p.source}`),
+      KORTIX_GIT_DELTA_BUNDLE_BASE64: p.bundle.toString('base64'),
+      // A parent payload that is not the scaffold root commit: the apply
+      // always fails and the caller falls back to its own fetch.
+      KORTIX_GIT_DELTA_PARENT_COMMIT_BASE64: Buffer.from('forged parent commit').toString('base64'),
+    })
+    try {
+      await materializeRepo(cfg)
+    } finally {
+      info.mockRestore()
+    }
+    expect(git(p.target, 'rev-parse', 'HEAD')).toBe(p.baseSha)
+    expect(logs).toContain('[git] API delta bundle unavailable; using authenticated fetch')
+    expect(readdirSync(p.target).filter((n) => n.startsWith('.kortix-fast-boot'))).toEqual([])
   })
 
   // A delta the scaffold cannot prove must never land a wrong tree: it falls

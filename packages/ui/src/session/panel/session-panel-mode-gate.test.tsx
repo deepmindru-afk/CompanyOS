@@ -1,9 +1,9 @@
-import { useKortixComputerStore } from '@kortix/ui/internal/stores/kortix-computer-store';
-import { useSessionBrowserStore } from '@kortix/ui/internal/stores/session-browser-store';
-import { useUserPreferencesStore } from '@kortix/ui/internal/stores/user-preferences-store';
+import { useKortixComputerStore } from '../../internal/stores/kortix-computer-store';
+import { useSessionBrowserStore } from '../../internal/stores/session-browser-store';
+import { useUserPreferencesStore } from '../../internal/stores/user-preferences-store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { NextIntlClientProvider } from '@/i18n/use-translations';
+import { IntlTestProvider } from '../../test-utils/intl';
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
@@ -15,7 +15,7 @@ import {
   SessionPanelProvider,
   useOptionalSessionPanel,
   type SessionPanelValue,
-} from '@kortix/ui/session-panel';
+} from './index';
 import { useSessionStateStore } from '@kortix/sdk/react';
 
 // The cards read everything from `SessionPanelProvider`. Standing the real one
@@ -59,9 +59,9 @@ function withQueryClient(node: ReactNode) {
 describe('panel mode gate', () => {
   test('ActionPanel renders the Easy card home even when Advanced is disabled', () => {
     const html = renderToStaticMarkup(
-      <NextIntlClientProvider locale="en" messages={{}} onError={() => {}}>
+      <IntlTestProvider locale="en" messages={{}} onError={() => {}}>
         {withQueryClient(withPanel(<ActionPanel />))}
-      </NextIntlClientProvider>,
+      </IntlTestProvider>,
     );
     // No preference read: a persisted Advanced preference cannot change this render.
     expect(html).toContain('Outputs');
@@ -76,9 +76,9 @@ describe('panel mode gate', () => {
 
   test('AdvancedPanel renders the stepper, unchanged — no Easy-only card labels', () => {
     const html = renderToStaticMarkup(
-      <NextIntlClientProvider locale="en" messages={{}} onError={() => {}}>
+      <IntlTestProvider locale="en" messages={{}} onError={() => {}}>
         <AdvancedPanel sessionId="s1" messages={[]} />
-      </NextIntlClientProvider>,
+      </IntlTestProvider>,
     );
     expect(html).not.toContain('Outputs');
     expect(html).not.toContain('Context');
@@ -106,6 +106,8 @@ const previousWindow = globalThis.window;
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
   innerWidth: 1440,
   matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }),
+  // `UiProvider` mounts `LazyMotion`, whose projection root calls `window.addEventListener`.
+  addEventListener() {}, removeEventListener() {},
 } });
 afterAll(() => Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow }));
 
@@ -145,11 +147,11 @@ describe('pending panel requests', () => {
       const client = new QueryClient();
       const tree = () => (
         <QueryClientProvider client={client}>
-          <NextIntlClientProvider locale="en" messages={{}} onError={() => {}}>
+          <IntlTestProvider locale="en" messages={{}} onError={() => {}}>
             <SessionPanelProvider sessionId={runtime} isSessionBusy={busy}>
               <ActionPanel /><Observe />
             </SessionPanelProvider>
-          </NextIntlClientProvider>
+          </IntlTestProvider>
         </QueryClientProvider>
       );
       await act(async () => {
@@ -185,9 +187,9 @@ describe('provider handoff characterization', () => {
     try {
       await act(async () => {
         renderer = create(withQueryClient(
-          <NextIntlClientProvider locale="en" messages={{}} onError={() => {}}>
+          <IntlTestProvider locale="en" messages={{}} onError={() => {}}>
             <SessionPanelProvider sessionId={runtime}><Observe /></SessionPanelProvider>
-          </NextIntlClientProvider>,
+          </IntlTestProvider>,
         ));
       });
       const current = (): SessionPanelValue => {

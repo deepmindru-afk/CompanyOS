@@ -314,7 +314,7 @@ export class ClaudeReply {
 }
 
 /** A failed Claude turn: `code` is Claude Code's error kind (`authentication_failed`, `rate_limit`, `billing_error`, …). */
-export class ClaudeTurnError extends Error {
+class ClaudeTurnError extends Error {
   constructor(
     message: string,
     readonly code: string | undefined,

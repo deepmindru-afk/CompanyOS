@@ -404,7 +404,7 @@ describe('standalone image routes', () => {
   function imageApp(inflight = new InflightBudget({ maxBytes: 1024 * 1024, perRequestMaxBytes: 1024 * 1024, amplification: 1 })) {
     const calls: { authorization: string | undefined; rawBody: string; operation: string }[] = [];
     const unused = async (): Promise<Response> => { throw new Error('not an image route'); };
-    const app = new Hono();
+    const app = new Hono<{ Bindings: { clientIp?: string | null } }>();
     registerRoutes(app, {
       chatCompletions: unused, messages: unused, responses: unused, listModels: unused, claudeCode: unused,
       audio: unused, voices: unused,
@@ -449,7 +449,7 @@ describe('standalone audio routes', () => {
     const calls: { operation: string; authorization: string | undefined; contentType: string; body: Uint8Array<ArrayBuffer> }[] = [];
     const voices: { authorization: string | undefined; model: string }[] = [];
     const unused = async (): Promise<Response> => { throw new Error('not an audio route'); };
-    const app = new Hono();
+    const app = new Hono<{ Bindings: { clientIp?: string | null } }>();
     registerRoutes(app, {
       chatCompletions: unused, messages: unused, responses: unused, listModels: unused, images: unused, claudeCode: unused,
       audio: async (request) => {
@@ -513,7 +513,7 @@ describe('standalone Claude Code passthrough routes', () => {
   function claudeApp() {
     const calls: Array<{ method: string; path: string; search: string; body: string | null; auth: string | null }> = [];
     const unused = async (): Promise<Response> => { throw new Error('not a Claude Code route'); };
-    const app = new Hono();
+    const app = new Hono<{ Bindings: { clientIp?: string | null } }>();
     registerRoutes(app, {
       chatCompletions: unused, messages: unused, responses: unused, listModels: unused, images: unused,
       audio: unused, voices: unused,

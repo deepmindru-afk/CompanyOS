@@ -1,7 +1,7 @@
-import type { ToolPart } from '@/ui';
+import type { ToolPart } from '@kortix/sdk';
 import { toolCallBlock, type ToolCallBlock } from '@kortix/sdk';
 import { describe, expect, it } from 'bun:test';
-import { collapseSnapshots } from '@kortix/ui/session/panel/easy/detail-view';
+import { collapseSnapshots } from './detail-view';
 
 function part(tool: string, id: string): ToolCallBlock {
   return toolCallBlock({

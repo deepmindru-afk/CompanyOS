@@ -16,7 +16,7 @@ import { ClaudeLoginMissing, claudeGateway } from './sdk'
 import { ClaudeSessions, type Effort } from './sessions'
 import { ClaudeReply } from './stream'
 
-export const CLAUDE_API = 'claude-agent' as const
+const CLAUDE_API = 'claude-agent' as const
 
 export function claudeModel(entry: ClaudeAgentModel): Model<Api> {
   return {

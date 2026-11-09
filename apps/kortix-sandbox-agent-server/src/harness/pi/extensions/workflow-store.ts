@@ -29,7 +29,7 @@ import { kortixApiFetch } from '@/lib/kortix-api/workspace-routes'
 /** The repository folder of saved workflows. */
 export const SAVED_WORKFLOWS_DIR = '.kortix/workflows'
 /** A saved workflow's name: its file is `<name>.js`. */
-export const SAVED_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const SAVED_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const RUN_ID = /^[A-Za-z0-9_-]{8,64}$/
 
 /**
@@ -237,7 +237,7 @@ export function listCheckout(root: string): string[] {
   }
 }
 
-export interface ProjectApi {
+interface ProjectApi {
   apiUrl: string
   projectId: string
   token: string

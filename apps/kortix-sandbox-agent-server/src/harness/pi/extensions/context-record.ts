@@ -27,7 +27,7 @@ import type { CompactionResult, InlineExtension, SessionEntry } from '@earendil-
 import { logger } from '@/lib/log/logger'
 
 /** The `details` of a compaction this extension appended. */
-export interface ContextRecordDetails {
+interface ContextRecordDetails {
   kind: 'record'
   /** The Kortix session whose log holds everything before the reset. */
   session: string
@@ -36,7 +36,7 @@ export interface ContextRecordDetails {
 }
 
 /** Characters of the person's latest message the reset text repeats; the log holds the rest. */
-export const LATEST_MESSAGE_MAX_CHARS = 8_000
+const LATEST_MESSAGE_MAX_CHARS = 8_000
 
 type Block = { type?: string; text?: string }
 
@@ -48,7 +48,7 @@ function userText(content: unknown): string {
 }
 
 /** The branch's message count and the person's latest message. */
-export function branchFacts(entries: readonly SessionEntry[]): { count: number; latestUser: string | null } {
+function branchFacts(entries: readonly SessionEntry[]): { count: number; latestUser: string | null } {
   let count = 0
   let latestUser: string | null = null
   for (const entry of entries) {
@@ -62,7 +62,7 @@ export function branchFacts(entries: readonly SessionEntry[]): { count: number; 
 }
 
 /** True when the branch ends inside a tool chain: a reset there continues the same turn. */
-export function endsMidTurn(entries: readonly SessionEntry[]): boolean {
+function endsMidTurn(entries: readonly SessionEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]!
     if (entry.type !== 'message') continue
@@ -75,7 +75,7 @@ export function endsMidTurn(entries: readonly SessionEntry[]): boolean {
 }
 
 /** The text the model reads after a reset (pi wraps it in its compaction framing). */
-export function resetText(input: { session: string; count: number; latestUser: string | null; midTurn: boolean }): string {
+function resetText(input: { session: string; count: number; latestUser: string | null; midTurn: boolean }): string {
   const lines = [
     'You are continuing this conversation in a fresh context. Nothing was summarized.',
     `Everything before this point (${input.count} messages, every tool call and result) is this session's log. Read it with \`kortix sessions log ${input.session} -n 50 --json\`: newest last; raise -n to go further back, pipe to jq or rg to search.`,

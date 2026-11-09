@@ -27,7 +27,8 @@ const server = Bun.serve({
   // by Bun (silent plain-text 413 / mid-upload socket close). See
   // request-body-ceiling.ts.
   maxRequestBodySize: bunRequestBodyCeilingBytes(perRequestCapBytes),
-  fetch: app.fetch,
+  fetch: (request, server) =>
+    app.fetch(request, { clientIp: server?.requestIP(request)?.address ?? null }),
 });
 
 console.log(`[gateway] listening on :${server.port}`);

@@ -35,7 +35,7 @@ function platformArch(): 'x64' | 'arm64' {
 }
 
 /** The tarball's npm URL. `KORTIX_NPM_REGISTRY` points a box behind a mirror elsewhere. */
-export function claudeTarballUrl(target: 'x64' | 'arm64', env: NodeJS.ProcessEnv = process.env): string {
+function claudeTarballUrl(target: 'x64' | 'arm64', env: NodeJS.ProcessEnv = process.env): string {
   const registry = (env.KORTIX_NPM_REGISTRY?.trim() || 'https://registry.npmjs.org').replace(/\/+$/, '')
   const name = `claude-agent-sdk-linux-${target}`
   return `${registry}/@anthropic-ai/${name}/-/${name}-${CLAUDE_AGENT_SDK_VERSION}.tgz`

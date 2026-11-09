@@ -27,7 +27,7 @@ export interface ClaudeInit {
 /** Older binaries ignore `verbatimPrompts` and can read user text as Claude Code commands. */
 const MINIMUM_VERSION = '2.1.248'
 
-export function versionError(version: string | undefined): Error | undefined {
+function versionError(version: string | undefined): Error | undefined {
   const parse = (value: string) => value.split(/[-+]/)[0]!.split('.').map(Number)
   if (version) {
     const current = parse(version)

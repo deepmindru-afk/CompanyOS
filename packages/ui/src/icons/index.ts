@@ -4,3 +4,4 @@
 export { Close } from './close';
 export { Copy } from './copy';
 export { SidebarGlyph } from './sidebar-toggle';
+export { SolidRightArrow } from './solid-right-arrow';

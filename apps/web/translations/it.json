@@ -2047,7 +2047,13 @@
       "title": "Nessun modello disponibile",
       "description": "Connetti un provider personale per iniziare a usare questa sessione.",
       "upgradeDescription": "Effettua l’upgrade o connetti un provider personale per iniziare a usare questa sessione."
-    }
+    },
+    "favorites": "Preferiti",
+    "favoritesEmpty": "Aggiungi una stella a un modello per tenerlo qui.",
+    "addFavorite": "Aggiungi {model} ai preferiti",
+    "removeFavorite": "Rimuovi {model} dai preferiti",
+    "groups": "Gruppi di modelli",
+    "thinking": "Ragionamento"
   },
   "sessionScope": {
     "resetDefault": "Ripristina predefinito",
@@ -2075,8 +2081,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "Esegui l’upgrade",
-      "barTitle": "Nessun modello collegato",
-      "barDescription": "collegane uno per iniziare a chattare",
+      "offerTitle": "Usa il tuo piano ChatGPT o Claude",
+      "connectChatGpt": "Collega ChatGPT",
+      "connectClaude": "Collega Claude",
+      "hidePlan": "Non mostrare {name}",
+      "chatGptPlan": "Piano Plus o Pro",
+      "claudePlan": "Piano Pro o Max",
       "connectModel": "Collega modello",
       "imagesUnsupported": "{model} non può leggere le immagini",
       "imagesUnsupportedHint": "rimuovile o scegli un altro modello"

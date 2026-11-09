@@ -94,7 +94,10 @@ export function DitherField({ className, still: stillProp = false }: { className
   useEffect(() => {
     const canvas = ref.current;
     const gl = canvas?.getContext('webgl', { premultipliedAlpha: true, antialias: false });
-    if (!canvas || !gl) return;
+    // Anti-fingerprinting extensions and automation browsers can return a
+    // truthy context stub without WebGL methods; require the API before use
+    // (KRTX-4536) so the canvas degrades to empty instead of throwing.
+    if (!canvas || !gl || typeof gl.createProgram !== 'function') return;
 
     const compile = (type: number, source: string) => {
       const shader = gl.createShader(type)!;

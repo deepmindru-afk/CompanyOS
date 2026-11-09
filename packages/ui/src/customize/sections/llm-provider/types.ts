@@ -23,6 +23,8 @@ export interface ProjectProviderModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTab?: ActiveTab;
+  /** Opens the Providers tab with this provider's row already expanded. */
+  defaultProviderId?: string;
   /**
    * Read-only members see connected providers + the catalog but not the
    * add/connect/remove controls (which POST and would 403). Fails safe: a

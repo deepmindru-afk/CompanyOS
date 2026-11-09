@@ -8,7 +8,7 @@
  *   - the upstream deadline answers `upstream_timeout` before any client gives up.
  * Fake deps, no database.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import {
   type GatewayAction,
   type GatewayConnector,
@@ -215,6 +215,122 @@ describe('connectorErrorHttpStatus()', () => {
     expect(connectorErrorHttpStatus('upstream_502', 502)).toBe(500);
     expect(connectorErrorHttpStatus('upstream_timeout: x')).toBe(500);
     expect(connectorErrorHttpStatus('computer_offline: x', 429)).toBe(409);
+  });
+});
+
+describe('handleCall() path arguments', () => {
+  // KRTX-4539: an empty path argument went out as an empty URL segment and the
+  // provider answered a misleading 404 for the truncated URL (Stripe: 101
+  // `GET /v1/payment_intents/` "Unrecognized request URL" calls in one burst).
+  const fetches: string[] = [];
+  const ARGS_ACTION = action({ kind: 'openapi', method: 'GET', path: '/intents/{intentId}', server: 'https://crm.example.test' });
+
+  beforeEach(() => {
+    fetches.length = 0;
+  });
+
+  const inputWithArgs = (args: Record<string, unknown>) => ({ ...INPUT, args });
+  // Like gatewayDeps(), but the fake fetch records the URL it was asked for.
+  const trackedDeps = (overrides: Partial<GatewayDeps> = {}) =>
+    gatewayDeps(async () => { throw new Error('untracked fetch'); }, {
+      fetchImpl: (async (url: string) => {
+        fetches.push(new URL(url).pathname);
+        return { status: 200, ok: true, text: async () => '{"id":"c1"}', headers: new Headers() };
+      }),
+      ...overrides,
+    });
+
+  test.each([
+    ['empty string', { intentId: '' }],
+    ['argument absent', {}],
+    ['whitespace only', { intentId: '  ' }],
+    ['null', { intentId: null }],
+    // The builder renders String(value): [] → '', [''] → '' — these are
+    // JSON arg values whose serialized path segment is empty.
+    ['empty array', { intentId: [] }],
+    ['array of one empty string', { intentId: [''] }],
+    // URL normalization collapses exactly the segments `.` and `..` into a
+    // parent path; longer dot runs are literal segments (control below).
+    ['dot-only', { intentId: '.' }],
+    ['parent-segment dots', { intentId: '..' }],
+  ])('path argument that serializes to nothing usable (%s) → denied before the upstream, message names it', async (_case, args) => {
+    const res = await handleCall(trackedDeps({ loadAction: async () => ARGS_ACTION }), inputWithArgs(args));
+    expect(res).toMatchObject({ status: 'denied', reason: 'invalid_args' });
+    if (res.status !== 'denied') return;
+    expect(res.message).toContain('intentId');
+    expect(fetches).toEqual([]);
+  });
+
+  test('a template with padding around the name reads the untrimmed capture the builder reads', async () => {
+    // buildHttpRequest substitutes args[' intentId '] for `{ intentId }` — the
+    // caller's un-padded key is invisible to it, so this renders an empty
+    // segment just like a missing argument (review of KRTX-4539's fix).
+    const deps = () =>
+      trackedDeps({ loadAction: async () => action({ kind: 'openapi', method: 'GET', path: '/intents/{ intentId }', server: 'https://crm.example.test' }) });
+    const res = await handleCall(deps(), inputWithArgs({ intentId: 'pi_1' }));
+    expect(res).toMatchObject({ status: 'denied', reason: 'invalid_args' });
+    if (res.status !== 'denied') return;
+    expect(res.message).toContain('intentId');
+    expect(fetches).toEqual([]);
+  });
+
+  test('a non-empty path argument still calls the upstream with the encoded value', async () => {
+    const res = await handleCall(trackedDeps({ loadAction: async () => ARGS_ACTION }), inputWithArgs({ intentId: 'pi_1' }));
+    expect(res).toMatchObject({ status: 'ok', output: { id: 'c1' } });
+    expect(fetches).toEqual(['/intents/pi_1']);
+  });
+
+  test('a dot run URL normalization leaves alone (`...`) is a literal segment and goes through', async () => {
+    // remove_dot_segments collapses exactly `.` and `..`; `...` is a literal
+    // segment that cannot escape the configured path, so it is a valid
+    // identifier and must reach the upstream (review of KRTX-4539's fix).
+    const res = await handleCall(trackedDeps({ loadAction: async () => ARGS_ACTION }), inputWithArgs({ intentId: '...' }));
+    expect(res).toMatchObject({ status: 'ok', output: { id: 'c1' } });
+    expect(fetches).toEqual(['/intents/...']);
+  });
+
+  test('a dot value embedded in a rendered segment with literal text around it goes through', async () => {
+    // `.` inside a `.json` route: the complete rendered segment is `..json`, a
+    // literal segment URL normalization leaves alone — only a WHOLE segment of
+    // `.` / `..` collapses (remove_dot_segments) (review of KRTX-4539's fix).
+    const deps = () =>
+      trackedDeps({ loadAction: async () => action({ kind: 'openapi', method: 'GET', path: '/files/{intentId}.json', server: 'https://crm.example.test' }) });
+    const res = await handleCall(deps(), inputWithArgs({ intentId: '.' }));
+    expect(res).toMatchObject({ status: 'ok', output: { id: 'c1' } });
+    expect(fetches).toEqual(['/files/..json']);
+  });
+
+  test('a padded dot value renders unchanged and reaches the upstream as its encoded form', async () => {
+    // `' . '` is not a dot segment: encodeURIComponent makes it `%20.%20`, a
+    // literal segment URL normalization never collapses into `.` — denying it
+    // would block a call the provider can answer (review of KRTX-4539's fix).
+    const res = await handleCall(trackedDeps({ loadAction: async () => ARGS_ACTION }), inputWithArgs({ intentId: ' . ' }));
+    expect(res).toMatchObject({ status: 'ok', output: { id: 'c1' } });
+    expect(fetches).toEqual(['/intents/%20.%20']);
+  });
+
+  test('a padded two-dot value embedded in a rendered segment goes through', async () => {
+    // Same class with the cycle-4 embedded shape: `' .. '` on a `.json` route
+    // renders `%20..%20.json`, and only a WHOLE segment of `.` / `..`
+    // collapses (remove_dot_segments) (review of KRTX-4539's fix).
+    const deps = () =>
+      trackedDeps({ loadAction: async () => action({ kind: 'openapi', method: 'GET', path: '/files/{intentId}.json', server: 'https://crm.example.test' }) });
+    const res = await handleCall(deps(), inputWithArgs({ intentId: ' .. ' }));
+    expect(res).toMatchObject({ status: 'ok', output: { id: 'c1' } });
+    expect(fetches).toEqual(['/files/%20..%20.json']);
+  });
+
+  test('two placeholders: the first empty one is named; both filled go through', async () => {
+    const deps = () => trackedDeps({ loadAction: async () => action({ kind: 'openapi', method: 'GET', path: '/a/{xId}/b/{yId}', server: 'https://crm.example.test' }) });
+    const res = await handleCall(deps(), inputWithArgs({ xId: '1' }));
+    expect(res).toMatchObject({ status: 'denied', reason: 'invalid_args' });
+    if (res.status !== 'denied') return;
+    expect(res.message).toContain('yId');
+    expect(fetches).toEqual([]);
+
+    const ok = await handleCall(deps(), inputWithArgs({ xId: '1', yId: '2' }));
+    expect(ok.status).toBe('ok');
+    expect(fetches).toEqual(['/a/1/b/2']);
   });
 });
 

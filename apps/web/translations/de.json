@@ -2047,7 +2047,13 @@
       "title": "Keine Modelle verfügbar",
       "description": "Verbinde deinen eigenen Anbieter, um diese Sitzung zu starten.",
       "upgradeDescription": "Führe ein Upgrade durch oder verbinde deinen eigenen Anbieter, um diese Sitzung zu starten."
-    }
+    },
+    "favorites": "Favoriten",
+    "favoritesEmpty": "Markiere ein Modell mit einem Stern, um es hier zu behalten.",
+    "addFavorite": "{model} zu Favoriten hinzufügen",
+    "removeFavorite": "{model} aus Favoriten entfernen",
+    "groups": "Modellgruppen",
+    "thinking": "Denken"
   },
   "sessionScope": {
     "resetDefault": "Auf Standard zurücksetzen",
@@ -2075,8 +2081,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "Upgrade",
-      "barTitle": "Kein Modell verbunden",
-      "barDescription": "Verbinde eines, um den Chat zu starten",
+      "offerTitle": "Nutze dein ChatGPT- oder Claude-Abo",
+      "connectChatGpt": "ChatGPT verbinden",
+      "connectClaude": "Claude verbinden",
+      "hidePlan": "{name} nicht mehr anzeigen",
+      "chatGptPlan": "Plus- oder Pro-Abo",
+      "claudePlan": "Pro- oder Max-Abo",
       "connectModel": "Modell verbinden",
       "imagesUnsupported": "{model} kann keine Bilder lesen",
       "imagesUnsupportedHint": "entferne sie oder wähle ein anderes Modell"

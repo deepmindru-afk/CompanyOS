@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '../../primitives/dropdown-menu';
 import { cn } from '../../lib/utils';
+import { SolidCheckIcon } from '../../internal/icons/solid-check-icon';
 import {
   CaretDownIcon,
   CellSignalFullIcon,
@@ -71,6 +72,7 @@ export function reasoningEffortChoices(
 /** `medium` → `Medium`. The catalog ships lowercase ids; the trigger and the
  *  menu should not. */
 export function effortLabel(value: string): string {
+  if (value === 'xhigh') return 'Extra high';
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -186,7 +188,7 @@ export function ReasoningEffortSelector({
           <span className="max-w-[7rem] truncate">{current ? effortLabel(current) : t('auto')}</span>
           <CaretDownIcon
             className={cn(
-              'size-3 opacity-50 transition-transform duration-200 ease-out',
+              'size-3 opacity-50 transition-transform duration-moderate ease-out',
               open && 'rotate-180',
             )}
           />
@@ -211,5 +213,96 @@ export function ReasoningEffortSelector({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+interface ReasoningEffortPaneProps {
+  /** `reasoningEffortChoices(...)` for the selected model. Empty = render nothing. */
+  choices: readonly string[];
+  /** The session's current variant, or null = model default. */
+  selectedVariant: string | null | undefined;
+  onVariantChange: (variant: string | null) => void;
+  /** The pane's heading. Defaults to "Thinking effort". */
+  title?: string;
+  className?: string;
+}
+
+/**
+ * Thinking effort as the right-hand pane of the model popover: the merged
+ * model + effort picker (`ModelSelector`'s `reasoning` prop). Same values,
+ * same Auto-first rule and same stale-pick rule as the dropdown above.
+ *
+ * It sits inside cmdk's `Command` root, which handles Arrow keys and Enter on
+ * every keydown that bubbles to it. The pane stops those keys so Enter on a
+ * level never also selects the model row cmdk has highlighted; Escape still
+ * bubbles so the popover closes.
+ */
+export function ReasoningEffortPane({
+  choices,
+  selectedVariant,
+  onVariantChange,
+  title,
+  className,
+}: ReasoningEffortPaneProps) {
+  const t = useTranslations('threads');
+  if (choices.length === 0) return null;
+
+  const current = selectedVariant && choices.includes(selectedVariant) ? selectedVariant : null;
+  const items: Array<{ value: string | null; label: string }> = [
+    { value: null, label: t('auto') },
+    ...choices.map((value) => ({ value, label: effortLabel(value) })),
+  ];
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Escape closes the popover, Tab leaves the pane, and a modifier
+    // combination (Mod+1..9 picks a model) belongs to the panel around it.
+    if (event.key === 'Escape' || event.key === 'Tab') return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    event.stopPropagation();
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const radios = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    );
+    const index = radios.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    radios[(index + step + radios.length) % radios.length]?.focus();
+  };
+
+  return (
+    // The heading names the knob only: the model is the checked row beside it.
+    <div className={cn('flex min-w-0 flex-col', className)}>
+      <div className="text-muted-foreground flex h-9 shrink-0 items-center border-b px-3 text-sm">
+        {title ?? t('thinkingEffort')}
+      </div>
+      <div
+        role="radiogroup"
+        aria-label={t('thinkingEffort')}
+        onKeyDown={onKeyDown}
+        className="flex flex-col gap-px p-1.5"
+      >
+        {items.map(({ value, label }) => {
+          const checked = value === current;
+          return (
+            <button
+              key={value ?? AUTO}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              tabIndex={checked ? 0 : -1}
+              onClick={() => onVariantChange(value)}
+              className={cn(
+                'text-foreground flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm outline-none',
+                'hover:bg-hover focus-visible:bg-hover focus-visible:ring-kortix-base focus-visible:ring-2',
+                checked && 'bg-active hover:bg-active',
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              {checked ? <SolidCheckIcon className="text-ring size-4 shrink-0" /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

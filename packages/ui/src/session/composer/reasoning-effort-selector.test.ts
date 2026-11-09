@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { reasoningEffortChoices } from './reasoning-effort-selector';
+import { effortLabel, reasoningEffortChoices } from './reasoning-effort-selector';
 
 describe('reasoningEffortChoices — the composer thinking control show/hide rule', () => {
   test('no variants → hidden (empty), in either mode', () => {
@@ -21,5 +21,15 @@ describe('reasoningEffortChoices — the composer thinking control show/hide rul
 
   test('a runtime/catalog merge slip that repeats an id collapses to one entry', () => {
     expect(reasoningEffortChoices(['low', 'low', 'high', ''], true)).toEqual(['low', 'high']);
+  });
+});
+
+describe('effortLabel', () => {
+  test('capitalizes a plain id', () => {
+    expect(effortLabel('medium')).toBe('Medium');
+  });
+
+  test('spells out xhigh', () => {
+    expect(effortLabel('xhigh')).toBe('Extra high');
   });
 });

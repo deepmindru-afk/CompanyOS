@@ -1,10 +1,11 @@
-import { wellKnownResponse } from '@kortix/shared/well-known';
 import {
+  type AuthedPrincipal,
   DEFAULT_BODY_AMPLIFICATION,
   DEFAULT_MAX_REQUEST_BYTES,
   InflightBudget,
   createGateway,
 } from '@kortix/llm-gateway';
+import { wellKnownResponse } from '@kortix/shared/well-known';
 import { automaticInflightBudgetBytes } from './memory-budget';
 
 // One admission budget protects one standalone process. Work beyond capacity
@@ -39,16 +40,19 @@ const defaultInflight = new InflightBudget({
 import { Hono } from 'hono';
 import { createApiClient } from './clients/api-client';
 import { config } from './config';
-import { type TraceSink, createLangfuseSink } from './observability/langfuse';
-import { createGatewayLogger } from './observability/logger';
 import { registerHealth } from './health';
 import { trackInflight } from './inflight';
+import { type TraceSink, createLangfuseSink } from './observability/langfuse';
+import { createGatewayLogger } from './observability/logger';
 import { registerRoutes } from './routes';
 import { createTokenRateLimit } from './token-rate-limit';
 import { createTraffic } from './traffic';
 
+/** The app type every registered route set takes: `clientIp` is the socket peer (main.ts). */
+export type GatewayApp = Hono<{ Bindings: { clientIp?: string | null } }>;
+
 export interface GatewayServer {
-  app: Hono;
+  app: GatewayApp;
   traces: TraceSink | null;
   /** Requests still being served, including streams still relaying. */
   inflightRequests: () => number;
@@ -96,7 +100,14 @@ export function messagesAuthorization(
   return key ? `Bearer ${key}` : undefined;
 }
 
-export function buildServer(options: { inflight?: InflightBudget } = {}): GatewayServer {
+export function buildServer(
+  options: {
+    inflight?: InflightBudget;
+    requestsPerMinutePerCredential?: number;
+    requestsPerMinuteUnvalidated?: number;
+    trustEdgeClientIp?: boolean;
+  } = {},
+): GatewayServer {
   const inflight = options.inflight ?? defaultInflight;
   const api = createApiClient({
     baseUrl: config.apiUrl,
@@ -122,12 +133,40 @@ export function buildServer(options: { inflight?: InflightBudget } = {}): Gatewa
     );
 
   const { recordOutcome, recordUpstream, trafficSnapshot, upstreamSignals } = createTraffic();
+  const rateLimit = createTokenRateLimit(
+    options.requestsPerMinutePerCredential ?? config.requestsPerMinutePerCredential,
+    options.requestsPerMinuteUnvalidated ?? config.requestsPerMinuteUnvalidated,
+    { trustEdgeClientIp: options.trustEdgeClientIp ?? config.trustEdgeClientIp },
+  );
+  // An API answer that carries a principal means the credential is real (even
+  // when a later gate denied the request: 402/403 carry the principal too). So
+  // every internal call that reaches the API to authenticate a token marks that
+  // token validated, whatever route the request took: without this a real
+  // credential would stay on the shared distinct-credential allowance for good
+  // (KRTX-4528). A request the shared bucket refuses never reaches the API, so
+  // its credential stays unvalidated until a later admitted request does; the
+  // refund of the shared slot happens there, in `validated()`, not here.
+  const validatedIfReal = (token: string, principal: AuthedPrincipal | null | undefined) => {
+    if (principal) rateLimit.validated(token);
+  };
   const gateway = createGateway(
     {
-      authenticate: api.authenticate,
+      authenticate: async (token) => {
+        const principal = await api.authenticate(token);
+        validatedIfReal(token, principal);
+        return principal;
+      },
       // Combined authentication + budget gate. Billing runs after model resolution.
-      authorize: api.authorize,
-      admit: api.admit,
+      authorize: async (token) => {
+        const result = await api.authorize(token);
+        validatedIfReal(token, result.principal);
+        return result;
+      },
+      admit: async (token, input) => {
+        const result = await api.admit(token, input);
+        validatedIfReal(token, result?.admission?.principal);
+        return result;
+      },
       resolveRoute: api.resolveRoute,
       resolveUpstream: api.resolveUpstream,
       notePoolRateLimit: api.notePoolRateLimit,
@@ -148,21 +187,27 @@ export function buildServer(options: { inflight?: InflightBudget } = {}): Gatewa
     },
     { logger, imageWindow: config.imageWindow, claudeCodeUpstream: config.claudeCodeUpstream },
   );
-  const app = new Hono();
+  // `clientIp` is the socket peer (main.ts), which the public edge (a
+  // Cloudflare-locked ALB) makes an infrastructure value: the per-source share
+  // of the unvalidated allowance keys on it (token-rate-limit.ts).
+  const app: GatewayApp = new Hono();
   app.use('*', async (c, next) => {
     await next();
     c.header('Cache-Control', 'private, no-store');
     c.header('Content-Security-Policy', "default-src 'none';frame-ancestors 'none'");
     c.header('X-Frame-Options', 'DENY');
     // Permissions-Policy has no wildcard directive: deny each browser capability explicitly.
-    c.header('Permissions-Policy', 'accelerometer=(), ambient-light-sensor=(), attribution-reporting=(), autoplay=(), battery=(), bluetooth=(), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), publickey-credentials-create=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), storage-access=(), sync-xhr=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()');
+    c.header(
+      'Permissions-Policy',
+      'accelerometer=(), ambient-light-sensor=(), attribution-reporting=(), autoplay=(), battery=(), bluetooth=(), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), keyboard-map=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), publickey-credentials-create=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), storage-access=(), sync-xhr=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()',
+    );
   });
   for (const path of ['/.well-known/security.txt', '/robots.txt', '/sitemap.xml']) {
     app.get(path, (c) => wellKnownResponse(c.req.path) ?? c.notFound());
   }
   const inflightRequests = trackInflight(app);
-  registerHealth(app, api, inflight, traces, trafficSnapshot, upstreamSignals);
-  registerRoutes(app, gateway, inflight, recordOutcome, createTokenRateLimit(config.requestsPerMinutePerCredential));
+  registerHealth(app, api, inflight, traces, trafficSnapshot, upstreamSignals, rateLimit);
+  registerRoutes(app, gateway, inflight, recordOutcome, rateLimit);
   // Register fallbacks after the handlers so supported methods keep their behavior.
   const methodsByPath = new Map<string, Set<string>>();
   for (const { path, method } of app.routes) {

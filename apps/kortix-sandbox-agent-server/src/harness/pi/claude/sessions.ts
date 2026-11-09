@@ -30,7 +30,7 @@ const READY_MS = 30_000
 
 export type Effort = NonNullable<Options['effort']>
 
-export interface ClaudeRequest {
+interface ClaudeRequest {
   /** The pi thread; absent for a side call. */
   readonly key?: string
   readonly model: string
@@ -66,7 +66,7 @@ interface Entry {
   active: boolean
 }
 
-export interface ClaudeSessionsOptions {
+interface ClaudeSessionsOptions {
   /** Where Claude's state and the records live (the runtime state dir). */
   readonly stateDir: string
   readonly cwd: string

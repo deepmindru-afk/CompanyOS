@@ -186,7 +186,9 @@ export function DitherIcon({
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('webgl', { antialias: false });
-    if (!canvas || !ctx) return;
+    // Same stub-context guard as DitherField (KRTX-4536): a truthy non-WebGL
+    // context must degrade to an empty canvas, not throw in the effect.
+    if (!canvas || !ctx || typeof ctx.createProgram !== 'function') return;
     const compile = (type: number, source: string) => {
       const shader = ctx.createShader(type)!;
       ctx.shaderSource(shader, source);

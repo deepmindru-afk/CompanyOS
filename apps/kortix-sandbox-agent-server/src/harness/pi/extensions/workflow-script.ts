@@ -16,7 +16,7 @@
  * checked.
  */
 
-export interface WorkflowMetaPhase {
+interface WorkflowMetaPhase {
   title: string
   detail?: string
 }

@@ -2047,7 +2047,13 @@
       "title": "没有可用模型",
       "description": "连接你自己的提供商后即可开始使用此会话。",
       "upgradeDescription": "升级或连接你自己的提供商后即可开始使用此会话。"
-    }
+    },
+    "favorites": "收藏",
+    "favoritesEmpty": "为模型加星标即可保留在这里。",
+    "addFavorite": "将 {model} 加入收藏",
+    "removeFavorite": "将 {model} 移出收藏",
+    "groups": "模型分组",
+    "thinking": "思考"
   },
   "sessionScope": {
     "resetDefault": "重置为默认设置",
@@ -2075,8 +2081,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "升级",
-      "barTitle": "未连接模型",
-      "barDescription": "连接一个模型以开始聊天",
+      "offerTitle": "使用你的 ChatGPT 或 Claude 套餐",
+      "connectChatGpt": "连接 ChatGPT",
+      "connectClaude": "连接 Claude",
+      "hidePlan": "不再显示 {name}",
+      "chatGptPlan": "Plus 或 Pro 套餐",
+      "claudePlan": "Pro 或 Max 套餐",
       "connectModel": "连接模型",
       "imagesUnsupported": "{model} 无法读取图片",
       "imagesUnsupportedHint": "请移除图片或选择其他模型"

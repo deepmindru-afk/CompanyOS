@@ -36,12 +36,12 @@ import {
 import { Type } from 'typebox'
 import { apiErrorMessage, BOARD_STATE_BADGE, callApi, errorKind, failure, sessionPath, toolReturn, type ControlPlane, type MultiAgentToolResult } from './control-plane'
 
-export const SEND_MESSAGE_TOOL = 'send_message'
-export const LIST_AGENTS_TOOL = 'list_agents'
+const SEND_MESSAGE_TOOL = 'send_message'
+const LIST_AGENTS_TOOL = 'list_agents'
 export const MESSAGING_TOOLS = [SEND_MESSAGE_TOOL, LIST_AGENTS_TOOL] as const
 
 /** What the messaging tools need from the runtime. */
-export interface MessagingHost {
+interface MessagingHost {
   /** The API with this session's token, or null without a control plane. */
   controlPlane(): ControlPlane | null
 }
@@ -201,7 +201,7 @@ function continuesLine(to: ReachableAgent | null): string {
 
 // ── list_agents ───────────────────────────────────────────────────────────
 
-export async function listAgents(host: MessagingHost, params: ListParams, signal?: AbortSignal): Promise<MultiAgentToolResult> {
+async function listAgents(host: MessagingHost, params: ListParams, signal?: AbortSignal): Promise<MultiAgentToolResult> {
   const scope: ReachableScope = params.scope === 'mine' ? 'mine' : 'project'
   const plane = host.controlPlane()
   if (!plane) return failure('list_agents', scope, 'No sessions to reach', { kind: 'failed', message: NO_CONTROL_PLANE })
