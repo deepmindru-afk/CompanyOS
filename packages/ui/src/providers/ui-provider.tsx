@@ -422,6 +422,8 @@ export interface UiHostComponents {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     defaultTab?: 'providers' | 'models';
+    /** Opens the Providers tab with this provider's row already expanded. */
+    defaultProviderId?: string;
     /** False or missing: read only. */
     canWrite?: boolean;
   }>;

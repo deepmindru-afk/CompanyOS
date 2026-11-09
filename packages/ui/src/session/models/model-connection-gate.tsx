@@ -1,16 +1,11 @@
 'use client';
 
-import { CreditCardIcon, ImageBrokenIcon, KeyIcon } from '@phosphor-icons/react';
+import { ImageBrokenIcon } from '@phosphor-icons/react';
 import { AnimatePresence, m, useReducedMotion } from 'motion/react';
 import { useState, type ReactNode } from 'react';
 import { useTranslations } from '../../i18n';
 
-import { Button } from '../../primitives/button';
-import type { FlatModel } from '@kortix/sdk/react';
-import { useModelConnectionGate } from './use-model-connection-gate';
-
-/** Stable empty list so the hook's `models = []` default isn't re-allocated per render. */
-const EMPTY_MODELS: FlatModel[] = [];
+import { ConnectPlanRows } from './subscription-offer';
 
 // Enter waits a beat (delay) so the composer paints first, then the bar slides
 // out from under it — height opens the space while the strip translates down,
@@ -20,70 +15,25 @@ const BAR_ENTER = { type: 'spring', duration: 0.5, bounce: 0, delay: 0.15 } as c
 const BAR_EXIT = { type: 'spring', duration: 0.35, bounce: 0 } as const;
 
 /**
- * Non-blocking variant of the gate — a slim status strip that slides out from
- * under the chat input card (the composer stays visible; sends are already
- * disabled by `modelUnavailable`). Left side says what's wrong, right side
- * offers the same two ways out as the full gate.
+ * No model can run: the composer shows the same "Connect ChatGPT" and "Connect
+ * Claude" rows the project home offers (`ConnectPlanRows`), a gap below the
+ * composer, not dismissible. Sending is already disabled by `modelUnavailable`.
  *
- * ## It is a TRAY, not a box below the composer
+ * It used to be a heading ("Connect a model to start"), two bordered tiles,
+ * "Use an API key" and "Upgrade". On the project home it stacked on top of the
+ * optional offer and read as a block. Other providers and API keys stay one
+ * click away in the model picker and the provider dialog.
  *
- * This renders as the card's next sibling and pulls itself UP behind it
- * (`-mt-4` on the clipper, cancelled by `pt-4` on the strip), so the card —
- * `isolate z-10`, opaque `bg-sidebar` — paints over the overlap. What is left
- * is one surface: the composer, with a deeper strip hanging off its bottom
- * edge and showing through the card's own rounded bottom corners.
- *
- * The overlap is why the card needs NO conditional radius. A flush seam would
- * have meant `rounded-b-none` on the card while this is mounted, and the card
- * would snap its corners back the instant `show` flipped — 350ms of square
- * corner sitting above a strip that is still animating out. Here the card is
- * untouched and only the tray moves.
- *
- * `-mt-4` lives on the clipper, never on the strip inside it: the clipper is
- * `overflow-hidden` for the height animation, so a negative margin on its
- * child would be clipped away instead of overlapping anything.
- *
- * `show` must only flip on settled data (see `entitlementsPending`) — the
- * animation assumes it renders once with the final answer, not per-query.
+ * `show` must only flip on settled data (see `entitlementsPending`).
  */
 export function ModelConnectionBar({ show }: { show: boolean }) {
-  const t = useTranslations('sessionUi.modelGate');
-  const { canConnectProvider, openConnectProvider, openUpgrade, modal, showUpgradeOption } =
-    useModelConnectionGate(EMPTY_MODELS);
-
-  return (
-    <>
-      {modal}
-      <ComposerTray show={show} trayKey="model-connection-bar">
-        <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
-          <KeyIcon className="size-3.5 shrink-0" />
-          <span className="truncate">
-            {t('barTitle')}
-            <span className="hidden sm:inline"> — {t('barDescription')}</span>
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {showUpgradeOption && (
-            <Button type="button" variant="ghost" size="xs" onClick={openUpgrade}>
-              <CreditCardIcon className="size-3.5 shrink-0" />
-              {t('upgrade')}
-            </Button>
-          )}
-          {canConnectProvider && (
-            <Button type="button" size="xs" onClick={() => openConnectProvider('providers')}>
-              {t('connectModel')}
-            </Button>
-          )}
-        </div>
-      </ComposerTray>
-    </>
-  );
+  return show ? <ConnectPlanRows dismissible={false} className="mt-4" /> : null;
 }
 
 /**
  * One line under the card when the selected model cannot read an attached image
- * (`modelRejectingAttachedImages`). Send is refused with the same words. The same
- * tray as `ModelConnectionBar`; the composer never shows both at once.
+ * (`modelRejectingAttachedImages`). Send is refused with the same words. The
+ * composer never shows it beside `ModelConnectionBar`.
  */
 export function ImagesUnsupportedBar({ modelName }: { modelName: string | null }) {
   const t = useTranslations('sessionUi.modelGate');
@@ -104,7 +54,14 @@ export function ImagesUnsupportedBar({ modelName }: { modelName: string | null }
   );
 }
 
-/** The tray both strips share. See `ModelConnectionBar` for why it hangs behind the card. */
+/**
+ * A strip that hangs behind the card's bottom edge: rendered as the card's next
+ * sibling, pulled up under it (`-mt-4` on the clipper, cancelled by `pt-4` on
+ * the strip), so the card — `isolate z-10`, opaque — paints over the overlap.
+ * `-mt-4` lives on the clipper, never on the strip: the clipper is
+ * `overflow-hidden` for the height animation and would clip a negative margin
+ * on its child.
+ */
 function ComposerTray({
   show,
   trayKey,

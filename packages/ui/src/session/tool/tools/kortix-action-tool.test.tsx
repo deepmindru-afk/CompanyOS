@@ -149,8 +149,8 @@ describe('KortixActionTool — done', () => {
     expect(text).toContain('Unsafe');
     expect(html).not.toContain('javascript:');
     expect(html).toContain('href="/workspaces/p-1/customize/agents"');
-    // The raw result sits folded under "Show details": the label shows, the JSON does not.
-    expect(text).toContain('Show details');
+    // The raw result is the model's: no "Show details", no JSON.
+    expect(text).not.toContain('Show details');
     expect(text).not.toContain('model-only-field');
   });
 
@@ -259,7 +259,31 @@ describe('KortixActionTool — denied', () => {
 });
 
 describe('KortixActionTool — failed', () => {
-  test('a failure shows its message in the open card and an error mark', () => {
+  // The result an older kortixd wrote for a follow_up call with no `text` (the reported card).
+  const MODEL_TEXT =
+    'Missing `text`: what the woken turn reads (what was done, what to check, what to do on each outcome, an end date). If you did send it, it did not arrive: send this call from codemode. Call again with it, e.g. {"action":"follow_up","in":"4d","text":"Check replies."}';
+  const incomplete = {
+    ok: false,
+    tool: 'kortix_schedules',
+    action: 'follow_up',
+    card: { title: 'What should the follow-up check?', subtitle: MODEL_TEXT, status: 'error' },
+    error: { kind: 'invalid', message: MODEL_TEXT },
+  };
+
+  test('an incomplete call reads as one plain line: no model instructions, no JSON, no Show details', () => {
+    for (const open of [false, true]) {
+      const text = textOf(render(<KortixActionTool call={done('kortix_schedules', incomplete)} defaultOpen={open} />));
+      expect(text).toContain('The agent left out a required detail');
+      expect(text).toContain("Didn't finish");
+      expect(text).not.toContain('What should the follow-up check?');
+      expect(text).not.toContain('Missing');
+      expect(text).not.toContain('codemode');
+      expect(text).not.toContain('{');
+      expect(text).not.toContain('Show details');
+    }
+  });
+
+  test('a failure keeps its title and error mark; the model message never shows', () => {
     const result = {
       ok: false,
       tool: 'kortix_agents',
@@ -267,13 +291,23 @@ describe('KortixActionTool — failed', () => {
       card: { title: 'Could not list the agents', subtitle: 'The command exited 1.', status: 'error' },
       error: { kind: 'failed', message: 'The command exited 1.' },
     };
-    const closed = textOf(render(<KortixActionTool call={done('kortix_agents', result)} />));
-    expect(closed).toContain('Could not list the agents');
-    expect(closed).toContain('The command exited 1.');
-    expect(closed).toContain("Didn't finish");
-    const open = render(<KortixActionTool call={done('kortix_agents', result)} defaultOpen />);
-    // Once, in the body: the trigger subtitle steps aside while open.
-    expect(textOf(open).split('The command exited 1.').length - 1).toBe(1);
+    const text = textOf(render(<KortixActionTool call={done('kortix_agents', result)} defaultOpen />));
+    expect(text).toContain('Could not list the agents');
+    expect(text).toContain("Didn't finish");
+    expect(text).not.toContain('The command exited 1.');
+  });
+
+  test('a note written for the person shows', () => {
+    const result = {
+      ok: false,
+      tool: 'kortix_memory',
+      action: 'list',
+      card: { title: 'Memory is off in this workspace', subtitle: 'Files is off.', status: 'error' },
+      error: { kind: 'failed', message: 'model text', note: 'Files is off.' },
+    };
+    const text = textOf(render(<KortixActionTool call={done('kortix_memory', result)} />));
+    expect(text).toContain('Files is off.');
+    expect(text).not.toContain('model text');
   });
 });
 

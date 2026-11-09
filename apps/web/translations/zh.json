@@ -2075,8 +2075,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "升级",
-      "barTitle": "未连接模型",
-      "barDescription": "连接一个模型以开始聊天",
+      "offerTitle": "使用你的 ChatGPT 或 Claude 套餐",
+      "connectChatGpt": "连接 ChatGPT",
+      "connectClaude": "连接 Claude",
+      "hidePlan": "不再显示 {name}",
+      "chatGptPlan": "Plus 或 Pro 套餐",
+      "claudePlan": "Pro 或 Max 套餐",
       "connectModel": "连接模型",
       "imagesUnsupported": "{model} 无法读取图片",
       "imagesUnsupportedHint": "请移除图片或选择其他模型"

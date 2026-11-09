@@ -17,7 +17,7 @@
  * `cliArgProblem` (CWE-88); flag values go as `--flag=value`, which the CLI
  * never reads as an option.
  */
-import type { KortixCardRow, KortixToolError } from '@kortix/api-contract/kortix-tool-card'
+import { KORTIX_INCOMPLETE_CALL_TITLE, type KortixCardRow, type KortixToolError } from '@kortix/api-contract/kortix-tool-card'
 import { adminHref, capRows, cliArgProblem, cliError, cliJson, cliRun, fail, ok, parseJson, runKortix, type PlatformToolContext } from './platform'
 
 const TOOL = 'kortix_schedules' as const
@@ -144,7 +144,7 @@ async function runJson<T>(args: string[], context: PlatformToolContext): Promise
     const off = run.stderr.split('\n').find((line) => /is not enabled for this (project|workspace)/.test(line))
     if (off) {
       const sentence = off.replace(/^\W+/, '').trim()
-      return { error: { kind: 'failed', message: `${sentence} Ask the person or a workspace admin to turn it on.` } }
+      return { error: { kind: 'failed', message: `${sentence} Ask the person or a workspace admin to turn it on.`, note: `${sentence} A workspace admin can turn it on.` } }
     }
     return { error: cliError(run) }
   }
@@ -423,12 +423,14 @@ async function list(context: PlatformToolContext) {
   ]
   const count = (n: number, one: string, many: string) => (n === 0 ? null : `${n} ${n === 1 ? one : many}`)
   const title = [count(followUps.length, 'follow-up', 'follow-ups'), count(wakeOns.length, 'wake-on', 'wake-ons'), count(schedules.length, 'schedule', 'schedules')].filter(Boolean).join(', ') || 'Nothing scheduled'
-  const missing = 'error' in loops ? `This session's follow-ups could not be read: ${loops.error.message}` : 'error' in triggers ? `The project schedules could not be read: ${triggers.error.message}` : null
+  // The card names what is missing; the reason is the model's (`data.errors`).
+  const errors = { ...('error' in loops ? { follow_ups: loops.error.message } : {}), ...('error' in triggers ? { schedules: triggers.error.message } : {}) }
+  const missing = 'error' in loops ? "This session's follow-ups could not be read." : 'error' in triggers ? 'The project schedules could not be read.' : null
   return ok(
     TOOL,
     'list',
     { title, ...(missing ? { subtitle: missing } : {}), rows: capRows(rows), links: [{ label: 'Triggers', href: adminHref(context.env, 'triggers') }] },
-    { follow_ups: followUps, wake_ons: wakeOns, schedules },
+    { follow_ups: followUps, wake_ons: wakeOns, schedules, ...(Object.keys(errors).length ? { errors } : {}) },
   )
 }
 
@@ -529,7 +531,8 @@ function count(args: Record<string, any>, field: string): number | null | { erro
  * so later events about it reach the same session; `max_runs_*` cap what it can start.
  */
 async function automate(args: Record<string, any>, context: PlatformToolContext) {
-  const invalid = (title: string, message: string) => fail(TOOL, 'automate', title, { kind: 'invalid', message }, context)
+  // Every check here is on the call's arguments: `_check` names it for this code, the person reads one incomplete-call title.
+  const invalid = (_check: string, message: string) => fail(TOOL, 'automate', KORTIX_INCOMPLETE_CALL_TITLE, { kind: 'invalid', message }, context)
   const name = typeof args.name === 'string' ? args.name.trim() : typeof args.id === 'string' ? args.id.trim() : ''
   if (!TRIGGER_SLUG.test(name)) return invalid('Name the automation', '`name` is a short id: lower-case letters, digits, "-" and "_", e.g. "issue-triage".')
   // A call without `on` names its source by the fields it gives (a model that forgets `on` still sets it up).
@@ -612,7 +615,10 @@ async function automate(args: Record<string, any>, context: PlatformToolContext)
       const link = 'text' in intake ? intake.text.match(/https?:\/\/\S+/)?.[0] : undefined
       if (link) {
         const message = `${made.error.message} Give the person this link to save ${secret} for webhooks (they paste the value there, never in chat), then call automate again: ${link}`
-        return { ...(await fail(TOOL, 'automate', `${secret} needs saving for webhooks`, { kind: 'invalid', message }, context)), data: { secret_intake_url: link } }
+        const note = 'Save the value on the linked page. It never passes through chat.'
+        const result = await fail(TOOL, 'automate', `${secret} needs saving for webhooks`, { kind: 'invalid', message, note }, context)
+        // The person saves it: the card carries the link (`card.links`), the model reads it in `data`.
+        return { ...result, card: { ...result.card, links: [{ label: 'Save secret', href: link }] }, data: { secret_intake_url: link } }
       }
     }
     return fail(TOOL, 'automate', 'Could not set up the automation', made.error, context)
@@ -647,7 +653,7 @@ async function testAutomation(args: Record<string, any>, context: PlatformToolCo
   const name = typeof args.name === 'string' ? args.name.trim() : typeof args.id === 'string' ? args.id.trim() : ''
   if (!TRIGGER_SLUG.test(name)) return fail(TOOL, 'test', 'Which automation?', { kind: 'invalid', message: '`name` is the automation\'s name, as list shows it.' }, context)
   if (args.payload !== undefined && (!args.payload || typeof args.payload !== 'object' || Array.isArray(args.payload))) {
-    return fail(TOOL, 'test', 'Check the sample', { kind: 'invalid', message: '`payload` is a JSON object merged over the sample event, e.g. { "body": { "action": "opened" } }.' }, context)
+    return fail(TOOL, 'test', KORTIX_INCOMPLETE_CALL_TITLE, { kind: 'invalid', message: '`payload` is a JSON object merged over the sample event, e.g. { "body": { "action": "opened" } }.' }, context)
   }
   const shown = await runJson<{ type?: string; app?: string | null; filter?: Record<string, unknown> | null }>(['triggers', 'show', name, '--json'], context)
   if ('error' in shown) return fail(TOOL, 'test', `Could not test ${name}`, shown.error, context)
@@ -697,7 +703,7 @@ async function testAppAutomation(name: string, app: string, filter: Record<strin
   // An App event name (the API's rule): letters, digits, . _ : / -, starting with a letter or digit, so it is
   // never read as a CLI flag (`--trigger=…` would pick another automation).
   if (!APP_EVENT_NAME.test(event)) {
-    return fail(TOOL, 'test', 'Check the event name', { kind: 'invalid', message: '`payload.event.name` is 1-128 letters, digits and . _ : / -, starting with a letter or digit, e.g. "status.changed".' }, context)
+    return fail(TOOL, 'test', KORTIX_INCOMPLETE_CALL_TITLE, { kind: 'invalid', message: '`payload.event.name` is 1-128 letters, digits and . _ : / -, starting with a letter or digit, e.g. "status.changed".' }, context)
   }
   const data = sample?.data && typeof sample.data === 'object' && !Array.isArray(sample.data) ? sample.data : null
   // The CLI exits 1 when nothing fired; its JSON still says why.

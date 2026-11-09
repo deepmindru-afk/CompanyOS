@@ -175,8 +175,15 @@ export function CreditLadder({
         </div>
       </div>
 
-      {/* The track: the inset keeps the end ticks off the rounded edge. */}
-      <div className={cn('bg-background mt-4 rounded-md border px-4', disabled && 'opacity-50')}>
+      {/* The track: the inset keeps the end ticks off the rounded edge.
+          `overflow-x-clip` contains the bar's layer: translated up to a full
+          track width right, it otherwise widens the scroll area of a host
+          that scrolls (the upgrade modal scrolled sideways at high tiers).
+          The 16px inset keeps the end bars and the focus outline's sides
+          inside; y stays visible, so the outline's top and bottom show. */}
+      <div
+        className={cn('bg-background mt-4 overflow-x-clip rounded-md border px-4', disabled && 'opacity-50')}
+      >
         <div
           ref={track}
           role="slider"

@@ -960,8 +960,14 @@ export async function middleware(request: NextRequest) {
  * source between DESKTOP_ALLOWED_ROUTES and the middleware export for
  * route literals, and this helper's health path is not a desktop route.
  */
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
 function httpsRedirectTarget(request: NextRequest): URL | null {
   if (request.nextUrl.pathname === '/api/health') return null;
+  // Local dev serves plain HTTP and Next dev stamps `x-forwarded-proto: http`
+  // on every request, so without this every local page 308s to an https
+  // origin nothing listens on.
+  if (LOCAL_HOSTNAMES.has(request.nextUrl.hostname)) return null;
   const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim();
   if (forwardedProto !== 'http') {
     let cfScheme: string | undefined;

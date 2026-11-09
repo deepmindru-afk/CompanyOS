@@ -71,6 +71,7 @@ export function ProjectProviderModal({
   open,
   onOpenChange,
   defaultTab,
+  defaultProviderId,
   canWrite = false,
 }: ProjectProviderModalProps) {
   return (
@@ -94,11 +95,12 @@ export function ProjectProviderModal({
         }
         className="bg-background flex h-(--provider-modal-h) w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 [--provider-modal-h:min(680px,calc(100dvh-2rem))] lg:h-(--provider-modal-h) lg:max-h-(--provider-modal-h) lg:min-h-(--provider-modal-h) lg:max-w-4xl">
         <ProviderModalBody
-          key={`${open}-${defaultTab ?? ''}`}
+          key={`${open}-${defaultTab ?? ''}-${defaultProviderId ?? ''}`}
           projectId={projectId}
           open={open}
           canWrite={canWrite}
           defaultTab={defaultTab}
+          defaultProviderId={defaultProviderId}
         />
       </ModalContent>
     </Modal>
@@ -123,11 +125,13 @@ function ProviderModalBody({
   open,
   canWrite,
   defaultTab,
+  defaultProviderId,
 }: {
   projectId: string;
   open: boolean;
   canWrite: boolean;
   defaultTab?: ActiveTab;
+  defaultProviderId?: string;
 }) {
   const [tab, setTab] = useState<ActiveTab>(() => pickInitialTab(defaultTab));
 
@@ -173,6 +177,7 @@ function ProviderModalBody({
             }}
             canWrite={canWrite}
             enabled={open}
+            selectedProviderId={defaultProviderId}
             onSelectProvider={() => undefined}
             providersVariant="accordion"
           />

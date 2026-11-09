@@ -2075,8 +2075,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "Esegui l’upgrade",
-      "barTitle": "Nessun modello collegato",
-      "barDescription": "collegane uno per iniziare a chattare",
+      "offerTitle": "Usa il tuo piano ChatGPT o Claude",
+      "connectChatGpt": "Collega ChatGPT",
+      "connectClaude": "Collega Claude",
+      "hidePlan": "Non mostrare {name}",
+      "chatGptPlan": "Piano Plus o Pro",
+      "claudePlan": "Piano Pro o Max",
       "connectModel": "Collega modello",
       "imagesUnsupported": "{model} non può leggere le immagini",
       "imagesUnsupportedHint": "rimuovile o scegli un altro modello"

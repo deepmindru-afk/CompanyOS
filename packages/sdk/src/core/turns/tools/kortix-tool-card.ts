@@ -194,6 +194,37 @@ function toolError(value: unknown): KortixToolError | undefined {
   };
 }
 
+/** The person's title of a failed argument check (kortixd `kortixFailureTitle`). */
+const INCOMPLETE_CALL_TITLE = 'The agent left out a required detail';
+
+/**
+ * The card is the person's; `error.message` is the model's. kortixd before
+ * 2026-11-09 copied the message into the subtitle and titled an argument check
+ * as a question to the model ("What should the follow-up check?"). Those
+ * transcripts still load, so the parser reads them the way kortixd now writes them.
+ */
+function personTitle(tool: KortixCardTool, title: string, error: KortixToolError | undefined): string {
+  if (error?.kind !== 'invalid') return title;
+  if (title.endsWith('?') || title === 'Unknown action') return INCOMPLETE_CALL_TITLE;
+  // kortix_schedules `automate` and `test` titled their argument checks as orders to the model.
+  const order = tool === 'kortix_schedules' && (title === 'Name the automation' || title === 'An App or an agent' || title.startsWith('Check the '));
+  return order ? INCOMPLETE_CALL_TITLE : title;
+}
+
+/**
+ * Two success subtitles older kortixd wrote with model text in them: the
+ * `models` hint on how to pass an id, and the reason after a schedule list's
+ * "could not be read". The person keeps what the subtitle says without it.
+ */
+function personSubtitle(tool: KortixCardTool, action: string, subtitle: string): string | undefined {
+  if (tool === 'kortix_agents' && action === 'models' && subtitle.startsWith('Pass an id as `model`')) return undefined;
+  if (tool === 'kortix_schedules' && action === 'list') {
+    const unread = /^(This session's follow-ups|The project schedules) could not be read: /.exec(subtitle);
+    if (unread) return `${unread[1]} could not be read.`;
+  }
+  return subtitle;
+}
+
 /**
  * The result in a platform call's output (or its error text, when the call threw
  * it): one JSON object. `null` when the text is not that object. `callName` names
@@ -222,13 +253,18 @@ export function parseKortixToolResult(raw: string | undefined, callName?: string
       : value.ok
         ? 'done'
         : 'error';
-  const subtitle = text(value.card.subtitle);
+  const rawSubtitle = text(value.card.subtitle);
+  // A subtitle the tool backed with `error.note` is the person's, even when the model reads the same words.
+  const note = isObject(value.error) ? text(value.error.note) : undefined;
+  const action = text(value.action) ?? '';
+  const subtitle =
+    rawSubtitle && (rawSubtitle === note || rawSubtitle !== error?.message) ? personSubtitle(tool, action, rawSubtitle) : undefined;
   return {
     ok: value.ok,
     tool,
-    action: text(value.action) ?? '',
+    action,
     card: {
-      title,
+      title: personTitle(tool, title, error),
       ...(subtitle ? { subtitle } : {}),
       status,
       rows: list(value.card.rows, row),

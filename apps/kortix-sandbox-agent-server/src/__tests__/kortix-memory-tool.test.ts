@@ -205,7 +205,7 @@ describe('kortix_memory', () => {
     const result = await run({ action: 'save', name: 'api-key', type: 'reference', description: 'The key', body: key })
     expect(result).toMatchObject({ ok: false, error: { kind: 'invalid' } })
     expect(JSON.stringify(result)).not.toContain(key)
-    expect(result.card.subtitle).toContain('save it as a secret')
+    expect(result.card.subtitle).toContain('Save it as a secret')
   })
 
   test('no control plane: a failure, not a throw', async () => {

@@ -17,7 +17,6 @@ import {
   useToolIndent,
   useToolOpen,
 } from '../shared/infrastructure';
-import { FoldedSection, OutputBlock } from '../shared/output-block';
 import { ToolRegistry } from '../shared/registry';
 import { ToolResultCard } from '../shared/result-card';
 import type { ToolProps } from '../shared/types';
@@ -65,9 +64,9 @@ import {
  *
  * The tool returns one `KortixToolResult` (`packages/api-contract/src/kortix-tool-card.ts`),
  * and the person reads its `card`: a headline, a status mark, the rows it found,
- * the settings it changed, and the links to open. The model reads `data`; this
- * card never shows it, except folded under "Show details" when no rich body
- * draws it.
+ * the settings it changed, and the links to open. The model reads `data` and
+ * `error.message`; this card never shows either, not even folded: they are
+ * instructions and JSON written for the model.
  *
  * A refused action is not a failure: Kortix's permission check worked, and a
  * person can grant the permission. It reads as "Needs a permission" with the
@@ -104,18 +103,6 @@ function badgeVariant(badge: string): 'success' | 'warning' | 'muted' {
   if (SUCCESS_WORDS.has(word)) return 'success';
   if (ATTENTION_WORDS.has(word)) return 'warning';
   return 'muted';
-}
-
-/** Raw output for "Show details": the result pretty-printed, capped. */
-const DETAILS_LIMIT = 8_000;
-function detailsText(raw: string): string {
-  let text = raw;
-  try {
-    text = JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    // keep the raw text
-  }
-  return text.length > DETAILS_LIMIT ? `${text.slice(0, DETAILS_LIMIT)}\n…` : text;
 }
 
 /** The card's state at the row's right edge. The glyph carries the hue; the word is for a screen reader. */
@@ -311,19 +298,6 @@ function CardLinks({ links }: { links: KortixCardLink[] }) {
   );
 }
 
-function CardDetails({ raw }: { raw: string }) {
-  const t = useTranslations('tools.kortixAction');
-  const indent = useToolIndent();
-  const text = useMemo(() => detailsText(raw), [raw]);
-  return (
-    <div className={cn(indent && 'mt-1.5', indent)}>
-      <FoldedSection label={t('showDetails')}>
-        <OutputBlock text={text} />
-      </FoldedSection>
-    </div>
-  );
-}
-
 /** The trigger subtitle while the row is closed; open, the body says it in full. */
 function SettledTrigger({
   title,
@@ -384,13 +358,11 @@ export function KortixActionTool(props: ToolProps) {
     if (send) return <PeerSendRow send={send} defaultOpen={defaultOpen} forceOpen={forceOpen} locked={locked} />;
   }
   const denied = card.status === 'denied';
-  const failure = card.status === 'error' && error && error.message && error.message !== card.title ? error.message : undefined;
   // A multi-agent result draws its own body from `data`; the card's rows would say it twice.
   const rich = multi && !denied ? multiAgentBody(multi, result) : null;
-  // `fail()` puts the error message in the subtitle, and a rich body says what
-  // the subtitle sums up: the open card shows it in full instead.
-  const subtitleInBody = denied || Boolean(rich) || (failure !== undefined && failure === card.subtitle);
-  const hasBody = denied || Boolean(failure) || Boolean(rich) || card.rows.length > 0 || card.changes.length > 0 || card.links.length > 0 || Boolean(raw);
+  // A rich body says what the subtitle sums up: the open card shows it in full instead.
+  const subtitleInBody = denied || Boolean(rich);
+  const hasBody = denied || Boolean(rich) || card.rows.length > 0 || card.changes.length > 0 || card.links.length > 0;
   // What the person must see or act on opens itself: a refusal, a change, a sign-in link.
   const attention = denied || card.status === 'needs_you' || card.changes.length > 0 || card.links.some((link) => link.external);
 
@@ -407,11 +379,6 @@ export function KortixActionTool(props: ToolProps) {
         {hasBody ? (
           <>
             {denied && <DeniedNotice error={error} />}
-            {failure && (
-              <ToolResultCard bodyClassName="px-2 py-1.5">
-                <p className="text-muted-foreground text-xs wrap-break-word">{failure}</p>
-              </ToolResultCard>
-            )}
             {rich}
             {!rich && card.rows.length > 0 && (
               <ToolResultCard bodyClassName="py-0.5">
@@ -434,8 +401,6 @@ export function KortixActionTool(props: ToolProps) {
               </ToolResultCard>
             )}
             {card.links.length > 0 && <CardLinks links={card.links} />}
-            {/* The raw result is for the model. A rich body already shows every field a person reads. */}
-            {raw && !rich && <CardDetails raw={raw} />}
           </>
         ) : undefined}
       </BasicTool>

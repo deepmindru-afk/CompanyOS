@@ -76,6 +76,12 @@ mock.module('./shared/infrastructure', () => ({
   ),
   RawOutputBlock: ({ output }: { output: string }) => <text>{`RAW·${output}`}</text>,
 }));
+/** The sign-in button prints its href so a test can assert the link it opens. */
+const opened: string[] = [];
+mock.module('@/lib/utils/open-link', () => ({ openExternalLink: (url: string) => void opened.push(url) }));
+mock.module('@/components/ui/button', () => ({
+  Button: ({ children, onPress }: { children?: React.ReactNode; onPress?: () => void }) => React.createElement('view', { onPress }, children),
+}));
 mock.module('./shared/styles', () => ({
   TURN_SPACE: { gap1_5: 6, gap2: 8 },
   TURN_TYPE: { xs: {} },
@@ -229,6 +235,54 @@ describe('ToolPartRenderer dispatch', () => {
     expect(texts()).toContain('Bash · failed');
     expect(texts()).toContain('ERROR·boom');
     expect(texts().some((t) => t.startsWith('REGISTERED-'))).toBe(false);
+  });
+
+  test('a My Kortix platform call renders its card title, never the JSON or the model message', async () => {
+    const message = 'Missing `text`: send this call from codemode. Call again with it, e.g. {"action":"follow_up"}';
+    const result = JSON.stringify({
+      ok: false,
+      tool: 'kortix_schedules',
+      action: 'follow_up',
+      card: { title: 'What should the follow-up check?', subtitle: message, status: 'error' },
+      error: { kind: 'invalid', message },
+    });
+    for (const state of [{ status: 'error', error: result }, { status: 'completed', output: result }]) {
+      await renderPart({ type: 'tool', id: 'part-k', callID: 'call-k', tool: 'kortix_schedules', state: { input: { action: 'follow_up' }, ...state } });
+      expect(texts()).toEqual(['The agent left out a required detail']);
+    }
+  });
+
+  test('a platform card with a sign-in link renders the link as a button that opens it', async () => {
+    const result = JSON.stringify({
+      ok: true,
+      tool: 'kortix_connectors',
+      action: 'connect',
+      card: { title: 'Sign in to github', subtitle: 'Only you will use this sign-in.', status: 'needs_you', links: [{ label: 'Sign in', href: 'https://auth.example.com/connect/abc' }] },
+      data: { url: 'https://auth.example.com/connect/abc' },
+    });
+    await renderPart({ type: 'tool', id: 'part-l', callID: 'call-l', tool: 'kortix_connectors', state: { status: 'completed', input: { action: 'connect' }, output: result } });
+    expect(texts()).toEqual(['Sign in to github · Only you will use this sign-in.', 'Sign in']);
+    const button = tree!.root.findAll((node) => node.type === 'view' && typeof node.props.onPress === 'function')[0]!;
+    await act(async () => button.props.onPress());
+    expect(opened).toEqual(['https://auth.example.com/connect/abc']);
+  });
+
+  test('a platform card shows its rows and changes; in-app links and data stay hidden', async () => {
+    const result = JSON.stringify({
+      ok: true,
+      tool: 'kortix_agents',
+      action: 'update',
+      card: {
+        title: 'Updated Researcher',
+        status: 'done',
+        rows: [{ title: 'Researcher', detail: 'Finds sources', badge: 'active' }],
+        changes: [{ field: 'model', before: 'a', after: 'b' }],
+        links: [{ label: 'Agents', href: '/workspaces/p-1/customize/agents' }],
+      },
+      data: { model_only: 'never shown' },
+    });
+    await renderPart({ type: 'tool', id: 'part-r', callID: 'call-r', tool: 'kortix_agents', state: { status: 'completed', input: { action: 'update' }, output: result } });
+    expect(texts()).toEqual(['Updated Researcher', 'Researcher', '  Finds sources · active', 'model', '  a → b']);
   });
 
   test('a failed image_gen call renders the image card, which draws its own failure', async () => {

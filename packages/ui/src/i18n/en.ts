@@ -1473,8 +1473,12 @@ const catalog = {
   "sessionUi": {
     "modelGate": {
       "upgrade": "Upgrade",
-      "barTitle": "No model connected",
-      "barDescription": "connect one to start chatting",
+      "offerTitle": "Use your ChatGPT or Claude plan",
+      "connectChatGpt": "Connect ChatGPT",
+      "connectClaude": "Connect Claude",
+      "hidePlan": "Don’t show {name}",
+      "chatGptPlan": "Plus or Pro plan",
+      "claudePlan": "Pro or Max plan",
       "connectModel": "Connect model",
       "imagesUnsupported": "{model} can’t read images",
       "imagesUnsupportedHint": "remove them or pick another model"

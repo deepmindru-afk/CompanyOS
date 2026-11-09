@@ -306,7 +306,8 @@ export function LlmSections({
   canWrite: boolean;
   /** Gates the provider list's fetch. False while the host is closed. */
   enabled: boolean;
-  /** The provider open in the host's `SplitSheet` (`ProviderSheetSplit`). */
+  /** `split`: the provider open in the host's `SplitSheet` (`ProviderSheetSplit`).
+   *  `accordion`: the row that starts expanded. */
   selectedProviderId?: string | null;
   onSelectProvider: (providerId: string) => void;
   /** `split`: the page's list + SplitSheet. `accordion`: the quick dialog's
@@ -318,7 +319,12 @@ export function LlmSections({
   return (
     <>
       {tab === 'providers' && providersVariant === 'accordion' && (
-        <ProviderAccordion projectId={projectId} canWrite={canWrite} enabled={enabled} />
+        <ProviderAccordion
+          projectId={projectId}
+          canWrite={canWrite}
+          enabled={enabled}
+          defaultExpandedId={selectedProviderId ?? null}
+        />
       )}
       {tab === 'providers' && providersVariant === 'split' && (
         /* JAY-510: this path mounts `ProviderConnect` DIRECTLY — no nested

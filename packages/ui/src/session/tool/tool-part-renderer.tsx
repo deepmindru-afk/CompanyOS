@@ -23,7 +23,7 @@ import { type InlinePermissionReply, replyToInlinePermission } from './inline-pe
 import { errorToast } from '../../primitives/toast';
 import { cn } from '../../lib/utils';
 import { partError, partMetadata, partStreamingInput } from './shared/infrastructure-parts';
-import { kortixCardTool, multiAgentTool, parseKortixToolResult } from './tools/kortix-tool-card';
+import { kortixCardTool, parseKortixToolResult } from './tools/kortix-tool-card';
 import { isWorkflowTool, parseWorkflowRun } from './tools/workflow-run';
 import {
   PERMISSION_LABELS,
@@ -308,14 +308,18 @@ function ToolPartRendererImpl({
 }
 
 
-/** The tools whose rows are an agent's work: they open in place, never in the side panel. */
+/**
+ * The tools whose rows are an agent's work: they open in place, never in the side panel.
+ * That includes every My Kortix platform tool (`kortix_schedules`, `kortix_agents`, …):
+ * its card is one line and a few rows, and a failed call is the agent's own slip, which
+ * a full panel only turned into a wall of red.
+ */
 export function isAgentTool(name: string): boolean {
   return (
     toolKind(name) === 'task' ||
     isWorkflowTool(name) ||
-    multiAgentTool(name) !== undefined ||
-    name === 'agent_spawn' ||
-    name === 'kortix_agents'
+    kortixCardTool(name) !== undefined ||
+    name === 'agent_spawn'
   );
 }
 

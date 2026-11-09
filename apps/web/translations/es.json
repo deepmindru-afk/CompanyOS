@@ -2075,8 +2075,12 @@
   "sessionUi": {
     "modelGate": {
       "upgrade": "Mejorar plan",
-      "barTitle": "No hay ningún modelo conectado",
-      "barDescription": "conecta uno para empezar a chatear",
+      "offerTitle": "Usa tu plan de ChatGPT o Claude",
+      "connectChatGpt": "Conectar ChatGPT",
+      "connectClaude": "Conectar Claude",
+      "hidePlan": "No mostrar {name}",
+      "chatGptPlan": "Plan Plus o Pro",
+      "claudePlan": "Plan Pro o Max",
       "connectModel": "Conectar modelo",
       "imagesUnsupported": "{model} no puede leer imágenes",
       "imagesUnsupportedHint": "quítalas o elige otro modelo"

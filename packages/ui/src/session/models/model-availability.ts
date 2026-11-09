@@ -30,6 +30,25 @@ export function unavailableModelConnection(
   return model.availability === 'login' && options.chatGptAvailable ? 'chatgpt' : 'provider';
 }
 
+/** Providers that run on a member's own ChatGPT or Claude plan. */
+const SUBSCRIPTION_PROVIDER_IDS = new Set(['codex', 'claude-agent']);
+
+/**
+ * True when a ChatGPT or Claude plan already serves a runnable model. The
+ * composer's connect prompt reads it: once a plan is connected it has nothing
+ * left to offer a project that already has Kortix models.
+ */
+export function hasRunnableSubscriptionModel(
+  models: ReadonlyArray<{ enabled?: boolean; available?: boolean; providerID?: string; provider?: string | null }>,
+): boolean {
+  return models.some(
+    (model) =>
+      (SUBSCRIPTION_PROVIDER_IDS.has(model.providerID ?? '') ||
+        SUBSCRIPTION_PROVIDER_IDS.has(model.provider ?? '')) &&
+      isRunnableModel(model),
+  );
+}
+
 export function resolveAvailableSelectedModel(
   selectedModel: ModelKey | null | undefined,
   isSelectableModel: (model: ModelKey) => boolean,

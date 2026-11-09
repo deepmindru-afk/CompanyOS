@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { workspaceIdFromEnv } from '@/lib/config/workspace-id'
+import { kortixFailureTitle } from '@kortix/api-contract/kortix-tool-card'
 import type {
   KortixCardChange,
   KortixCardRow,
@@ -163,6 +164,10 @@ export function ok(tool: KortixPlatformToolName, action: string, card: Omit<Kort
  * A refused or failed action. A refusal carries the people who can grant it,
  * read from the project's members (a member list the person may not read
  * leaves the list out; the refusal itself still stands).
+ *
+ * The card is the person's: `error.message` tells the model how to call again
+ * and never reaches it. A failure shows `error.note` when the tool wrote one,
+ * and an argument check reads as an incomplete call (`kortixFailureTitle`).
  */
 export async function fail(
   tool: KortixPlatformToolName,
@@ -179,12 +184,17 @@ export async function fail(
       ? grantors.length > 0
         ? `${grantors.map((g) => g.name).join(', ')} can grant it.`
         : 'A workspace manager can grant it.'
-      : error.message
+      : error.note
   return {
     ok: false,
     tool,
     action,
-    card: { title, subtitle, status, ...(error.kind === 'denied' ? { links: [{ label: 'Members', href: membersHref(context.env) }] } : {}) },
+    card: {
+      title: kortixFailureTitle(title, error.kind),
+      ...(subtitle ? { subtitle } : {}),
+      status,
+      ...(error.kind === 'denied' ? { links: [{ label: 'Members', href: membersHref(context.env) }] } : {}),
+    },
     error: withGrantors,
   }
 }

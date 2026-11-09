@@ -93,6 +93,7 @@ export function useModelConnectionGate(
 
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalTab, setProjectModalTab] = useState<'providers' | 'models'>('providers');
+  const [projectModalProviderId, setProjectModalProviderId] = useState<string | undefined>();
 
   const accountStateQuery = useAccountState();
   // Availability is SERVER-resolved, never re-derived here. `/model-picker`
@@ -149,9 +150,10 @@ export function useModelConnectionGate(
 
   const canConnectProvider = !!(projectId && ProjectProviderModal);
   const openConnectProvider = useCallback(
-    (tab: ProviderModalTab = 'providers') => {
+    (tab: ProviderModalTab = 'providers', providerId?: string) => {
       if (!canConnectProvider) return;
       setProjectModalTab(projectProviderModalTab(tab));
+      setProjectModalProviderId(providerId);
       setProjectModalOpen(true);
     },
     [canConnectProvider],
@@ -172,6 +174,7 @@ export function useModelConnectionGate(
         open={projectModalOpen}
         onOpenChange={setProjectModalOpen}
         defaultTab={projectModalTab}
+        defaultProviderId={projectModalProviderId}
         canWrite={canWriteProviders}
       />
     ) : null;

@@ -13,7 +13,6 @@ const selectorSource = readFileSync(join(import.meta.dir, 'model-selector.tsx'),
 // it just stops being able to find what it is looking for, which is exactly
 // what happened here.
 const chatInputSource = readFileSync(join(import.meta.dir, '..', 'composer', 'composer.tsx'), 'utf8');
-const chatGateSource = readFileSync(join(import.meta.dir, 'model-connection-gate.tsx'), 'utf8');
 const availabilitySource = readFileSync(join(import.meta.dir, 'model-availability.ts'), 'utf8');
 
 describe('model management entry-point routing', () => {
@@ -130,10 +129,5 @@ describe('useModelConnectionGate: the options argument is backward compatible', 
   test('model-selector calls the hook with models only', () => {
     expect(selectorSource).toContain('useModelConnectionGate(models)');
     expect(selectorSource).not.toContain('useModelConnectionGate(models,');
-  });
-
-  test('the model-connection-gate call site still passes no live data and no options', () => {
-    expect(chatGateSource.match(/useModelConnectionGate\(EMPTY_MODELS\)/g)?.length).toBe(1);
-    expect(chatGateSource).not.toContain('useModelConnectionGate(EMPTY_MODELS,');
   });
 });

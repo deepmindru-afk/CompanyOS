@@ -5,7 +5,7 @@
  * this session, so every call acts as this session for its person: the API
  * refuses what that person may not do, and the refusal is a result.
  */
-import type { KortixCardRow, KortixToolCard, KortixToolError } from '@kortix/api-contract/kortix-tool-card'
+import { kortixFailureTitle, type KortixCardRow, type KortixToolCard, type KortixToolError } from '@kortix/api-contract/kortix-tool-card'
 import type { SessionBoardState } from '@kortix/api-contract/multi-agent'
 import { kortixApiFetch } from '@/lib/kortix-api/workspace-routes'
 
@@ -97,13 +97,13 @@ export function errorKind(status: number): KortixToolError['kind'] {
   return 'failed'
 }
 
-/** A failed call as a result: the card says what did not happen, in plain words. */
+/** A failed call as a result: the card says what did not happen, in plain words. `error.message` is the model's and never shows on it. */
 export function failure(tool: MultiAgentToolName, action: string, title: string, error: KortixToolError, rows?: KortixCardRow[]): MultiAgentToolResult {
   return {
     ok: false,
     tool,
     action,
-    card: { title, subtitle: error.message, status: error.kind === 'denied' ? 'denied' : 'error', ...(rows?.length ? { rows } : {}) },
+    card: { title: kortixFailureTitle(title, error.kind), ...(error.note ? { subtitle: error.note } : {}), status: error.kind === 'denied' ? 'denied' : 'error', ...(rows?.length ? { rows } : {}) },
     error,
   }
 }

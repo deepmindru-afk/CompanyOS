@@ -377,6 +377,26 @@ describe('agent tools never open in the side panel', () => {
     expect(inChat(failed('send_message', { to: 'reviewer', message: 'hi' }))).toContain('aria-expanded');
   });
 
+  test('the reported failed kortix_schedules follow_up opens in place, never the side panel', () => {
+    const message = 'Missing `text`: what the woken turn reads. Call again with it, e.g. {"action":"follow_up","in":"4d"}';
+    const result = JSON.stringify({ ok: false, tool: 'kortix_schedules', action: 'follow_up', card: { title: 'What should the follow-up check?', subtitle: message, status: 'error' }, error: { kind: 'invalid', message } });
+    const part = { type: 'tool', tool: 'kortix_schedules', callID: 'c-sched', state: { status: 'error', input: { action: 'follow_up', in: '4d' }, error: result, time: { start: 1, end: 2 } } } as unknown as ToolPart;
+    const html = inChat(part);
+    // One static line: the plain title, nothing to expand, no panel glyph, no click target.
+    expect(html).toContain('The agent left out a required detail');
+    expect(html).not.toContain('-scale-x-100');
+    expect(html).not.toContain('aria-expanded');
+    expect(html).not.toContain('role="button"');
+  });
+
+  test('every My Kortix platform tool opens in place, done or failed', () => {
+    for (const tool of ['kortix_schedules', 'kortix_agents', 'kortix_sessions', 'kortix_connectors', 'kortix_people', 'kortix_access', 'kortix_usage', 'kortix_change_requests', 'kortix_memory']) {
+      const output = JSON.stringify({ ok: true, tool, action: 'list', card: { title: 'Listed', status: 'done', rows: [{ title: 'one' }] } });
+      const part = { type: 'tool', tool, callID: `c-${tool}`, state: { status: 'completed', input: { action: 'list' }, output, time: { start: 1, end: 2 } } } as unknown as ToolPart;
+      expect(inChat(part)).not.toContain('-scale-x-100');
+    }
+  });
+
   test('an ordinary tool still opens in the side panel', () => {
     expect(inChat(failed('bash', { command: 'ls' }))).not.toContain('aria-expanded');
   });
