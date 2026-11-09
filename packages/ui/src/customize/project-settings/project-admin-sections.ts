@@ -6,6 +6,7 @@ import {
   HardDrivesIcon,
   KeyIcon,
   PlugsConnectedIcon,
+  RobotIcon,
   TimerIcon,
   type Icon,
 } from '@phosphor-icons/react';
@@ -46,7 +47,7 @@ export type ProjectAdminSectionKey = WorkspaceSettingsSection;
 
 export type ProjectAdminResourceKey = Extract<
   WorkspaceSettingsSection,
-  'connectors' | 'skills' | 'triggers' | 'models' | 'secrets' | 'apps' | 'drives' | 'repo'
+  'agents' | 'connectors' | 'skills' | 'triggers' | 'models' | 'secrets' | 'apps' | 'drives' | 'repo'
 >;
 
 /**
@@ -153,10 +154,17 @@ export interface ProjectAdminResource {
    * off, the sidebar's Files row is the repo browser (`projectNavRows`).
    */
   flag?: 'drives';
+  /**
+   * The row opens on its capability alone, without Settings access. Agents:
+   * a member who may read the agents browsed them under Customize before
+   * Customize became this panel (2026-11-08), and still does.
+   */
+  memberOpen?: true;
 }
 
 /** Rail order. Icons match the agent editor's tabs (`agent-page.tsx`). */
 export const PROJECT_ADMIN_RESOURCES: readonly ProjectAdminResource[] = [
+  { key: 'agents', icon: RobotIcon, capability: 'agent', host: false, memberOpen: true },
   { key: 'connectors', icon: PlugsConnectedIcon, capability: 'connectors', host: false },
   { key: 'secrets', icon: KeyIcon, capability: 'secrets', host: false },
   { key: 'skills', icon: BookOpenTextIcon, capability: 'skills', host: false },

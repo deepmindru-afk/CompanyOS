@@ -37,11 +37,11 @@ See `plan.md`. Specific to this plan:
 - Modify: `packages/sdk/src/core/rest/projects-client/projects.ts` (`FeatureFlagKey` union ~L64, `FEATURE_FLAG_KEYS` ~L102)
 - Modify: `packages/sdk/src/core/rest/projects-client/projects.test.ts` (~L976)
 - Modify: `apps/api/src/feature-flags/registry.ts` (new entry after `pi_harness`, ~L322)
-- Modify: `packages/ui/src/internal/lib/use-project-feature-flags.ts` (~L42, ~L60, trailing `isLoading`)
+- Modify: `packages/sdk/src/react/use-feature-flag.ts` (`SERVED_FLAG_MAP_KEYS`; this map moved out of packages/ui by KRTX-4414)
 - Modify: `apps/web/translations/{en,de,es,fr,it,ja,pt,sr,zh}.json` (next to `"pi_harness"`, en ~L1007)
 
 **Interfaces:**
-- Produces: `FeatureFlagKey` includes `'genui'`; `resolveFeatureFlag(metadata, 'genui'): boolean`; web `useProjectFeatureFlags(projectId).genui: boolean`.
+- Produces: `FeatureFlagKey` includes `'genui'`; `resolveFeatureFlag(metadata, 'genui'): boolean`; web `useFeatureFlags(projectId).flags.genui: boolean`.
 
 - [ ] **Step 1: List every holder before editing (registry header instruction)**
 
@@ -89,7 +89,7 @@ Expected: both FAIL — the schema and `FEATURE_FLAG_KEYS` do not contain `genui
 
 - [ ] **Step 5: Web hook and translations**
 
-`packages/ui/src/internal/lib/use-project-feature-flags.ts`: add `const genui = useFeatureFlag(projectId, 'genui');` after the `piHarness` line, add `genui: genui.enabled,` to the returned map, and move the trailing `isLoading:` so it reads from the newly-last hook (`isLoading: genui.isLoading,` if `genui` is now last).
+`packages/sdk/src/react/use-feature-flag.ts`: add `'genui'` to `SERVED_FLAG_MAP_KEYS` (it moved out of packages/ui by KRTX-4414; one line, the fail-closed resolution follows).
 
 In each of the 9 `apps/web/translations/*.json` files, add next to `"pi_harness"`:
 
@@ -116,7 +116,7 @@ Expected: all PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/api-contract packages/sdk/src/core/rest/projects-client apps/api/src/feature-flags packages/ui/src/internal/lib/use-project-feature-flags.ts apps/web/translations
+git add packages/api-contract packages/sdk/src/core/rest/projects-client packages/sdk/src/react/use-feature-flag.ts apps/api/src/feature-flags apps/web/translations
 git commit -m "feat(flags): add the genui project flag (hidden, default off)"
 ```
 
@@ -361,7 +361,7 @@ Expected: PASS; lint clean; CLI suite (including `lint:sdk-boundary`) green.
 - [ ] **Step 5: Verify the runtime end to end on the worktree stack**
 
 1. `pnpm worktree start genui` in the background; wait for `curl -s localhost:20908/v1/health`.
-2. Seed a user and token (CLAUDE.md "Authenticating to the live API"), create a project, and turn the flag on with the same API call the settings page uses (`PATCH` the project's experimental flags — read the route from `packages/ui/src/internal/lib/use-project-feature-flags.ts`' SDK call).
+2. Seed a user and token (CLAUDE.md "Authenticating to the live API"), create a project, and turn the flag on with the same API call the settings page uses (`PATCH` the project's experimental flags — read the route from `packages/sdk/src/react/use-feature-flag.ts`'s SDK call).
 3. Start a session; in the sandbox, run `cat /tmp/kortix/genui.md | head -3` through the session's terminal or `kortix` CLI. Expected: the file exists and starts with `# Generative UI`.
 4. Send `Compare these two plans: Basic 10 USD with 3 projects; Pro 30 USD with unlimited projects.` Expected: the stored assistant text contains ```` ```openui ````.
 5. Send `hi`. Expected: no ```` ```openui ````.

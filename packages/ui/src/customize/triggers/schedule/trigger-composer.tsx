@@ -35,7 +35,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../primitives/ta
 import { successToast } from '../../../primitives/toast';
 import { agentDisplayLabel } from '../../../session/composer/session-chat-input';
 import { useTranslations as useI18nTranslations } from '../../../i18n';
-import { useProjectFeatureFlags } from '../../../internal/lib/use-project-feature-flags';
 import { UiLink as Link, useUiViewerId } from '../../../providers/ui-provider';
 import { uiRoutes } from '../../../lib/routes';
 import { projectSettingsSectionHref } from '../../project-settings/project-settings-sections';
@@ -45,6 +44,7 @@ import {
   useProjectApps,
   useProjectTriggerEventApps,
   useVisibleAgents,
+  useFeatureFlags,
 } from '@kortix/sdk/react';
 import { AppWindowIcon, GitMergeIcon, LightningIcon, TimerIcon, WebhooksLogoIcon } from '@phosphor-icons/react';
 import { useMutation } from '@tanstack/react-query';
@@ -181,7 +181,7 @@ function ComposerForm({
   const tComposer = useI18nTranslations('triggerComposer');
   // Connector events are a beta feature behind the project flag `event_triggers`. Off: the tab
   // stays and its panel says how to turn it on; no catalog request is sent.
-  const eventsOn = useProjectFeatureFlags(projectId).flags.event_triggers === true;
+  const eventsOn = useFeatureFlags(projectId).flags.event_triggers === true;
   const [draft, setDraft] = useState<ComposerDraft>(() => ({
     ...initialDraft({
       kind: initialKind ?? (initialApp || initialConnector ? 'event' : null),

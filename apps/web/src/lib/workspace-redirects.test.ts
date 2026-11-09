@@ -70,7 +70,12 @@ describe('the /projects → /workspaces redirects', () => {
 
   test('a renamed tab under the old prefix lands on its final page in one hop', () => {
     expect(redirectOf('/projects/p1/config')).toEqual({ location: '/workspaces/p1/admin/general', status: 307 });
-    expect(redirectOf('/projects/p1/agent/kortix')).toEqual({ location: '/workspaces/p1/customize/agents/kortix', status: 307 });
+    expect(redirectOf('/projects/p1/agent/kortix')).toEqual({ location: '/workspaces/p1/admin/agents/kortix', status: 307 });
+    expect(redirectOf('/workspaces/p1/customize/agents/kortix?tab=access')).toEqual({ location: '/workspaces/p1/admin/agents/kortix?tab=access', status: 307 });
+    expect(redirectOf('/workspaces/p1/customize/agents')).toEqual({ location: '/workspaces/p1/admin/agents', status: 307 });
+    expect(redirectOf('/workspaces/p1/review?id=cr%3A7')).toEqual({ location: '/workspaces/p1/inbox?view=review&id=cr%3A7', status: 307 });
+    expect(redirectOf('/workspaces/p1/customize/review')).toEqual({ location: '/workspaces/p1/inbox?view=review', status: 307 });
+    expect(redirectOf('/projects/p1/review')).toEqual({ location: '/workspaces/p1/inbox?view=review', status: 307 });
     expect(redirectOf('/projects/p1/backends/app1')).toEqual({ location: '/workspaces/p1/apps?app=app1', status: 307 });
     expect(redirectOf('/projects/p1/customize/settings?section=models')).toEqual({
       location: '/workspaces/p1/admin/models?section=models',
@@ -129,7 +134,7 @@ describe('an installed desktop shell keeps every app page in its window', () => 
 
   test.each([
     ['/projects/p1/config', '/projects/p1/admin/general'],
-    ['/projects/p1/agent', '/projects/p1/customize/agents'],
+    ['/projects/p1/agent', '/projects/p1/admin/agents'],
   ])('an old deep link %s redirects the shell to %s, a path it loads', (path, location) => {
     expect(redirectFor(path, DESKTOP_UA)).toBe(location);
     expect(oldShellLoads(location)).toBe(true);

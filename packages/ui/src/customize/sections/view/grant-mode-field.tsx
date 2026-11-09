@@ -11,10 +11,10 @@ import { useTranslations as useI18nTranslations } from '../../../i18n';
 import { Badge } from '../../../primitives/badge';
 import { Checkbox } from '../../../primitives/checkbox';
 import type { AgentGrantSetV2 } from '@kortix/sdk';
+import { useFeatureFlags } from '@kortix/sdk/react';
 import type { ReactNode } from 'react';
 import { KORTIX_PERMISSIONS_CATALOG } from './agent-editor-catalog';
 import { useUiParams } from '../../../providers/ui-provider';
-import { useProjectFeatureFlags } from '../../../internal/lib/use-project-feature-flags';
 import { GrantModeTabs, plainGrantSwitch, useAgentGrant, withCatalog } from '../../shared/agent-resource-scope';
 
 export type GrantMode = 'all' | 'pick' | 'none';
@@ -131,7 +131,7 @@ export function KortixPermissionsField({
 }) {
   const tI18nComplete = useI18nTranslations('hardcodedUi.i18nComplete');
   const params = useUiParams();
-  const { flags } = useProjectFeatureFlags(typeof params.id === 'string' ? params.id : null);
+  const { flags } = useFeatureFlags(typeof params.id === 'string' ? params.id : null);
   const groups = KORTIX_PERMISSIONS_CATALOG.filter((grp) => !grp.featureFlag || flags[grp.featureFlag] === true);
   const ids = groups.flatMap((grp) => grp.actions);
   const grant = useAgentGrant(value, onChange);

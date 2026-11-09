@@ -8932,6 +8932,7 @@ Every hook is in `@kortix/sdk/react`. Most are React Query hooks: unless a row s
 | `useConnectorQuery(projectId, slug, action, args, { account, enabled, staleTime })` | One connector action's output as a cached query. Use it only for read actions: every fetch runs the action. |
 | `useConnectorSetup(token, { backendUrl, storage, openPopup, onOpened })` | The flow behind a connect link (`/connect/<token>`): `phase` (`loading`, `ready`, `starting`, `opened`, `connected`, `error`), `info`, `error`, `connectedAs`, `connect()`. You supply the popup opener. |
 | `useFeatureFlag(projectId, key)` | `{ enabled, isLoading }`. Loading and errors read `false`. |
+| `useFeatureFlags(projectId)` | Every served flag in one `{ flags, isLoading }` — one row read, keys listed in the SDK (`FEATURE_FLAG_KEYS` plus the still-served `volumes`, `drives`, `artifacts`, `session_log`). Same fail-closed read as `useFeatureFlag`. |
 | `useCan(target, action)` · `useCans(target, actions)` | `{ allowed, reason, isLoading, isError }` · one request for several actions, a map keyed by action (keep `actions` stable across renders). `target` is `{ accountId }`, `{ accountId, resource }` or `{ projectId }`. Loading and errors read `allowed: false`. |
 | `usePermissionsFor(accountId, memberUserId, probes)` | What another member can do. Needs `member.read`. |
 | `useSetBillingPlan()` | A mutation over `billing.setPlan`. |

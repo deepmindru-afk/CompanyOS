@@ -1,13 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  ADMIN_MANAGED_TABS,
   CAPABILITY_TABS,
   PRIMARY_TABS,
   activeCapabilityTab,
   agentHref,
   capabilityTabHref,
   channelsHref,
-  customizeNavTabs,
   reviewHref,
 } from './capability-tab-routes';
 
@@ -66,33 +64,6 @@ describe('CAPABILITY_TABS', () => {
   });
 });
 
-describe('customizeNavTabs', () => {
-  // Agent-centric Customize (Marko, 2026-10-24): the libraries moved to
-  // `/admin` and Repo moved into Settings, so the nav keeps Agents, Review
-  // (its own standalone row) and Settings. The pages still resolve by URL —
-  // the gate reads the full access set — so the keys stay in CAPABILITY_TABS
-  // and only the nav drops them.
-  test('drops the admin-managed libraries and the settings-managed tabs', () => {
-    const all = CAPABILITY_TABS.map((t) => t.key);
-    expect(customizeNavTabs(all)).toEqual(['agent', 'review', 'config']);
-  });
-
-  test('the admin-managed set is exactly the six libraries', () => {
-    expect([...ADMIN_MANAGED_TABS]).toEqual([
-      'skills',
-      'connectors',
-      'triggers',
-      'reminders',
-      'models',
-      'secrets',
-    ]);
-  });
-
-  test('is a no-op when no admin-managed tab is present', () => {
-    expect(customizeNavTabs(['agent', 'config'])).toEqual(['agent', 'config']);
-  });
-});
-
 describe('the Settings tab', () => {
   test('keys on `config`, never on `settings`', () => {
     // `/workspaces/<id>/settings` is the settings OVERLAY's deep-link route. Two
@@ -107,25 +78,25 @@ describe('the Settings tab', () => {
 describe('capabilityTabHref', () => {
   test('builds a project-scoped path', () => {
     expect(capabilityTabHref('p1', 'skills')).toBe('/workspaces/p1/admin/skills');
-    expect(capabilityTabHref('p1', 'agent')).toBe('/workspaces/p1/customize/agents');
+    expect(capabilityTabHref('p1', 'agent')).toBe('/workspaces/p1/admin/agents');
     expect(capabilityTabHref('p1', 'triggers')).toBe('/workspaces/p1/admin/triggers');
   });
 });
 
 describe('reviewHref', () => {
-  test('Review is its own page, outside Customize', () => {
+  test('Review is a tab of the Inbox', () => {
     // Since 2026-11-04 Review is a top-level page; `/customize/review` redirects to it.
-    expect(reviewHref('p1')).toBe('/workspaces/p1/review');
-    expect(capabilityTabHref('p1', 'review')).toBe('/workspaces/p1/review');
+    expect(reviewHref('p1')).toBe('/workspaces/p1/inbox?view=review');
+    expect(capabilityTabHref('p1', 'review')).toBe('/workspaces/p1/inbox?view=review');
     // The page draws no Customize bar, so it lights no Customize tab.
-    expect(activeCapabilityTab('/workspaces/p1/review')).toBeNull();
+    expect(activeCapabilityTab('/workspaces/p1/inbox?view=review')).toBeNull();
   });
 });
 
 describe('agentHref', () => {
   test('nests one agent under the Agents tab and encodes the manifest key', () => {
-    expect(agentHref('p1', 'churn')).toBe('/workspaces/p1/customize/agents/churn');
-    expect(agentHref('p1', 'a b/c')).toBe('/workspaces/p1/customize/agents/a%20b%2Fc');
+    expect(agentHref('p1', 'churn')).toBe('/workspaces/p1/admin/agents/churn');
+    expect(agentHref('p1', 'a b/c')).toBe('/workspaces/p1/admin/agents/a%20b%2Fc');
   });
 });
 
@@ -153,7 +124,7 @@ describe('activeCapabilityTab', () => {
     expect(activeCapabilityTab('/workspaces/p1/admin/skills/a/b')).toBeNull();
   });
   test('matches the tab segment', () => {
-    expect(activeCapabilityTab('/workspaces/p1/customize/agents')).toBe('agent');
+    expect(activeCapabilityTab('/workspaces/p1/admin/agents')).toBe('agent');
     expect(activeCapabilityTab('/workspaces/p1/admin/connectors')).toBe('connectors');
     expect(activeCapabilityTab('/workspaces/p1/admin/skills')).toBe('skills');
     expect(activeCapabilityTab('/workspaces/p1/admin/triggers')).toBe('triggers');

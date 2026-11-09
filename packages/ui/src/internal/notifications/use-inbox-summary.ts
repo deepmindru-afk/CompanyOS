@@ -3,14 +3,19 @@
 import { uiRoutes } from '../../lib/routes';
 import { useUiViewerId } from '../../providers/ui-provider';
 import { useNotificationInbox } from '@kortix/sdk/react';
+import { useReviewNeedsYouCount } from '../hooks/use-review-session-summary';
 import { tabUnreadCount } from './notification-rows';
 
 /**
  * The Inbox entry point (KRTX-1742) in the workspace menu: the Inbox page's
- * href, the server's unread count (99+ at most), and whether an unread
- * question, permission request or failure waits ("needs you"). It reads the
- * inbox `NotificationHost` polls, so it sends no request of its own. `href` is
- * null when the host serves no Inbox page.
+ * href, its count, and whether something waits on the person ("needs you").
+ * The Inbox holds Review too (2026-11-08), so the count is the unread
+ * notifications (99+ at most) plus what waits in this workspace's Review,
+ * and "needs you" is an unread question, permission request or failure, or
+ * any Review item that waits. The notifications are the inbox
+ * `NotificationHost` polls; the Review number reads the review summary and
+ * asks the session list already polls. `href` is null when the host serves
+ * no Inbox page.
  */
 export function useInboxSummary(projectId: string): {
   href: string | null;
@@ -19,10 +24,11 @@ export function useInboxSummary(projectId: string): {
 } {
   const viewerId = useUiViewerId();
   const inbox = useNotificationInbox({ userId: viewerId });
+  const review = useReviewNeedsYouCount(projectId);
   const href = uiRoutes().inbox?.(projectId) ?? null;
   return {
     href,
-    count: href ? inbox.unreadCount : 0,
-    needsYou: !!href && tabUnreadCount(inbox.data?.notifications ?? [], 'needs') > 0,
+    count: href ? inbox.unreadCount + review : 0,
+    needsYou: !!href && (review > 0 || tabUnreadCount(inbox.data?.notifications ?? [], 'needs') > 0),
   };
 }

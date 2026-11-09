@@ -62,7 +62,7 @@ describe('kortix_agents', () => {
     const result = await run('kortix_agents', { action: 'list' })
     expect(result.ok).toBe(true)
     expect(result.card.title).toBe('2 agents')
-    expect(result.card.rows?.[0]).toEqual({ title: 'researcher', detail: 'Digs into a topic', href: '/workspaces/proj_1/customize/agents/researcher' })
+    expect(result.card.rows?.[0]).toEqual({ title: 'researcher', detail: 'Digs into a topic', href: '/workspaces/proj_1/admin/agents/researcher' })
     expect(result.card.rows?.[1]?.badge).toBe('built in')
     // My Kortix has no agent page (the project home starts it): its row links nowhere.
     expect(result.card.rows?.[1]?.href).toBeUndefined()
@@ -475,7 +475,7 @@ describe('kortix_change_requests', () => {
     const result = await run('kortix_change_requests', { action: 'list' })
     expect(result.ok).toBe(true)
     expect(result.card.title).toBe('1 open change request')
-    expect(result.card.rows).toEqual([{ title: '#3 Upgrade the manifest', detail: 'Sam', badge: 'open', href: '/workspaces/proj_1/review?id=cr%3Acr-uuid-3' }])
+    expect(result.card.rows).toEqual([{ title: '#3 Upgrade the manifest', detail: 'Sam', badge: 'open', href: '/workspaces/proj_1/inbox?view=review&id=cr%3Acr-uuid-3' }])
     expect(result.data).toEqual({
       change_requests: [{ number: 3, cr_id: 'cr-uuid-3', title: 'Upgrade the manifest', author: 'Sam', status: 'open', from: 'kortix/session-a', into: 'main', session_id: 'ses_9', opened_at: '2026-10-30T09:00:00.000Z' }],
     })

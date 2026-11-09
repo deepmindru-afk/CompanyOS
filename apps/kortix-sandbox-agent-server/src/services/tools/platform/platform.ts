@@ -136,7 +136,7 @@ export function sessionHref(env: PlatformToolContext['env'], sessionId: string):
 }
 
 export function agentHref(env: PlatformToolContext['env'], agent: string): string {
-  return projectHref(env, `/customize/agents/${encodeURIComponent(agent)}`)
+  return projectHref(env, `/admin/agents/${encodeURIComponent(agent)}`)
 }
 
 /**

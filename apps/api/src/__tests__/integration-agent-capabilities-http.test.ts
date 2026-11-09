@@ -30,8 +30,13 @@ agents:
 const ACCOUNT = crypto.randomUUID();
 const OWNER = crypto.randomUUID();
 const PROJECT = crypto.randomUUID();
+/** A linked repository before setup: no kortix.yaml. */
+const BARE_ACCOUNT = crypto.randomUUID();
+const BARE_PROJECT = crypto.randomUUID();
 let secret = '';
+let bareSecret = '';
 let upstream: LocalGitUpstream;
+let bareUpstream: LocalGitUpstream;
 
 beforeAll(async () => {
   upstream = createLocalGitUpstream('agent-capabilities', {
@@ -44,13 +49,23 @@ beforeAll(async () => {
   await db.insert(projects).values({ projectId: PROJECT, accountId: ACCOUNT, name: 'agent-capabilities', repoUrl: upstream.repoUrl, metadata: {} });
   await insertIntoView(db, projectMembers, [{ accountId: ACCOUNT, projectId: PROJECT, userId: OWNER, projectRole: 'manager' }]);
   secret = (await createAccountToken({ accountId: ACCOUNT, userId: OWNER, projectId: PROJECT, name: 'agent-capabilities-test', agentGrant: null as any })).secretKey;
+
+  bareUpstream = createLocalGitUpstream('agent-capabilities-bare', { 'README.md': '# An app\n' });
+  await db.insert(accounts).values({ accountId: BARE_ACCOUNT, name: 'agent-capabilities-bare' });
+  await insertIntoView(db, accountMembers, [{ userId: OWNER, accountId: BARE_ACCOUNT, accountRole: 'owner', isSuperAdmin: false }]);
+  await db.insert(projects).values({ projectId: BARE_PROJECT, accountId: BARE_ACCOUNT, name: 'agent-capabilities-bare', repoUrl: bareUpstream.repoUrl, metadata: {} });
+  await insertIntoView(db, projectMembers, [{ accountId: BARE_ACCOUNT, projectId: BARE_PROJECT, userId: OWNER, projectRole: 'manager' }]);
+  bareSecret = (await createAccountToken({ accountId: BARE_ACCOUNT, userId: OWNER, projectId: BARE_PROJECT, name: 'agent-capabilities-bare', agentGrant: null as any })).secretKey;
 });
 
 afterAll(async () => {
-  await db.execute(sql`delete from kortix.account_tokens where account_id = ${ACCOUNT}`);
-  await db.delete(projects).where(eq(projects.accountId, ACCOUNT));
-  await db.delete(accounts).where(eq(accounts.accountId, ACCOUNT));
+  for (const account of [ACCOUNT, BARE_ACCOUNT]) {
+    await db.execute(sql`delete from kortix.account_tokens where account_id = ${account}`);
+    await db.delete(projects).where(eq(projects.accountId, account));
+    await db.delete(accounts).where(eq(accounts.accountId, account));
+  }
   upstream.remove();
+  bareUpstream.remove();
 });
 
 const call = (path: string, init: RequestInit = {}) =>
@@ -91,6 +106,27 @@ describe('GET /agents/:name/capabilities', () => {
   test('no token answers 401', async () => {
     const res = await app.request(`/v1/projects/${PROJECT}/agents/kortix/capabilities`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('a repository without kortix.yaml', () => {
+  const bareCall = (path: string) =>
+    app.request(`/v1/projects/${BARE_PROJECT}${path}`, { headers: { Authorization: `Bearer ${bareSecret}` } });
+
+  test('GET /capabilities answers 200 with the built-in catalog and no project items', async () => {
+    const res = await bareCall('/capabilities');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Omit<Catalog, 'agent'>;
+    expect(body.skills.filter((s) => s.group === 'project')).toEqual([]);
+    for (const name of KORTIX_SKILL_NAMES) expect(body.skills.find((skill) => skill.id === name)?.group).toBe('builtin');
+    expect(body.tools.some((t) => t.group === 'workspace')).toBe(true);
+    expect(body.tools.filter((t) => t.group === 'project')).toEqual([]);
+  });
+
+  test('GET /agents/:name/capabilities answers 404 agent_not_found', async () => {
+    const res = await bareCall('/agents/kortix/capabilities');
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe('agent_not_found');
   });
 });
 

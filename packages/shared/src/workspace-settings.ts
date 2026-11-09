@@ -13,9 +13,11 @@
 
 export const WORKSPACE_SETTINGS_GROUPS = [
   { id: 'workspace', sections: ['general', 'security', 'branding', 'api-keys', 'capture'] },
-  // What the workspace's agents work with. Git configures the repository
-  // connection; Repository browses its files (with Drive on).
-  { id: 'library', sections: ['models', 'connectors', 'secrets', 'skills', 'drives', 'apps', 'triggers', 'sandbox', 'git', 'repo'] },
+  // The workspace's agents, then what they work with. Agents lives here since
+  // 2026-11-08: Customize is this panel, one place to configure. Git
+  // configures the repository connection; Repository browses its files
+  // (with Drive on).
+  { id: 'library', sections: ['agents', 'models', 'connectors', 'secrets', 'skills', 'drives', 'apps', 'triggers', 'sandbox', 'git', 'repo'] },
   { id: 'people', sections: ['members', 'groups', 'roles', 'identity', 'audit'] },
   { id: 'billing', sections: ['plan', 'usage'] },
   { id: 'advanced', sections: ['feature-flags'] },
@@ -50,6 +52,7 @@ export const WORKSPACE_SETTINGS_SECTION_ALIASES: Readonly<Record<string, Workspa
   experimental: 'feature-flags',
   snapshots: 'sandbox',
   repository: 'repo',
+  agent: 'agents',
   danger: 'danger-zone',
 };
 
@@ -64,6 +67,7 @@ export const WORKSPACE_SETTINGS_LABELS: Readonly<Record<WorkspaceSettingsSection
   'api-keys': 'API keys',
   capture: 'Capture',
   'danger-zone': 'Danger zone',
+  agents: 'Agents',
   connectors: 'Connectors',
   secrets: 'Secrets',
   skills: 'Skills',

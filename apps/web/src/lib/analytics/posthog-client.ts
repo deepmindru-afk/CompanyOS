@@ -114,6 +114,10 @@ async function start(userId: string | null): Promise<PostHog | null> {
     disable_web_experiments: true,
     disable_product_tours: true,
     disable_conversations: true,
+    // The app decides when a survey may pop (`survey-gate.ts`): PostHog's own
+    // loop popped the acquisition survey over the create-first-workspace
+    // landing of a zero-workspace account.
+    disable_surveys_automatic_display: true,
     before_send: (event) => (event ? scrubEvent(event, origin) : event),
     // Runs inside init, before the first event, so every event carries these.
     loaded: (client) =>

@@ -348,7 +348,8 @@ export function CapabilityLibrary({
   ) : query.isError ? (
     <ErrorState
       size="sm"
-      title={t('loadError')}
+      // Workspace Skills names its own list; an agent's page loads all three at once.
+      title={!agent && view === 'skills' ? t('skillsLoadError') : t('loadError')}
       action={
         <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
           {t('retry')}

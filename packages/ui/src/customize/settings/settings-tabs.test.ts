@@ -244,7 +244,7 @@ describe('legacySectionRedirect', () => {
 
   test('graduated capability pages still leave the overlay', () => {
     expect(legacySectionRedirect('p1', 'skills')).toBe('/workspaces/p1/admin/skills');
-    expect(legacySectionRedirect('p1', 'agents')).toBe('/workspaces/p1/customize/agents');
+    expect(legacySectionRedirect('p1', 'agents')).toBe('/workspaces/p1/admin/agents');
     expect(legacySectionRedirect('p1', 'connectors')).toBe('/workspaces/p1/admin/connectors');
     expect(legacySectionRedirect('p1', 'files')).toBe('/workspaces/p1/files');
   });
@@ -280,7 +280,7 @@ describe('legacySectionRedirect', () => {
   // Coverage carried forward from the retired legacy Customize-sections test —
   // cases the spec test above doesn't exercise but the old suite caught.
   test('the graduated agent/agents spellings both redirect', () => {
-    expect(legacySectionRedirect('p1', 'agent')).toBe('/workspaces/p1/customize/agents');
+    expect(legacySectionRedirect('p1', 'agent')).toBe('/workspaces/p1/admin/agents');
   });
 
   test('changes redirects to the files proposed-changes panel', () => {

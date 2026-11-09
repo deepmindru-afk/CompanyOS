@@ -5,19 +5,18 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from '@/i18n/test-source';
 import { join, resolve } from 'node:path';
 import { menuRegistry } from './menu-registry';
-import { uiSourcePath } from '@/test-utils/read-source';
 
 /**
  * `requiresFlag` is only a gate if EVERY consumer honours it. Before this, the
  * command palette filtered on it and the legacy right rail did not — so the first
  * flagged item to gain `showIn: ['rightSidebar']` would have leaked a disabled
  * feature into the nav. The rail is deleted (KRTX-1012); these tests pin the
- * declaration, the one surviving consumer, and the flag map that resolves an
- * arbitrary key.
+ * declaration, the one surviving consumer, and the palette's own filter line.
+ * The flag MAP that resolves an arbitrary key is pinned behaviorally, key by
+ * key, in `packages/sdk/src/react/use-feature-flag.test.ts` (`useFeatureFlags`).
  */
 const root = resolve(import.meta.dir, '..');
 const registrySource = readFileSync(join(root, 'lib/menu-registry.ts'), 'utf8');
-const flagMapSource = readFileSync(uiSourcePath('internal/lib/use-project-feature-flags.ts'), 'utf8');
 const paletteSource = readFileSync(join(root, 'features/workspace/command-palette.tsx'), 'utf8');
 
 describe('menu registry feature-flag gating', () => {
@@ -52,7 +51,7 @@ describe('menu registry feature-flag gating', () => {
     const reviewRow = menuRegistry.find((item) => item.id === 'proj-review-inbox');
     expect(reviewRow).toBeDefined();
     expect(reviewRow?.requiresFlag).toBeUndefined();
-    expect(reviewRow?.href).toBe('/workspaces/{projectId}/review');
+    expect(reviewRow?.href).toBe('/workspaces/{projectId}/inbox?view=review');
 
     // None of them is a settings tab any more, so the derived palette list
     // must not offer one — that would open the overlay on nothing.
@@ -81,20 +80,5 @@ describe('menu registry feature-flag gating', () => {
     expect(paletteSource).toContain(
       'if (item.requiresFlag && !projectFlags[item.requiresFlag]) continue;',
     );
-  });
-});
-
-describe('useProjectFeatureFlags', () => {
-  test('covers EVERY feature flag key, so a new flag is gateable on day one', () => {
-    for (const key of FEATURE_FLAG_KEYS) {
-      expect(flagMapSource).toContain(`useFeatureFlag(projectId, '${key}')`);
-      expect(flagMapSource).toContain(`${key}: `);
-    }
-  });
-
-  test('is composed from the ONE primitive, not a second hand-rolled read', () => {
-    expect(flagMapSource).toContain("import { useFeatureFlag } from '@kortix/sdk/react';");
-    expect(flagMapSource).not.toContain('useQuery');
-    expect(flagMapSource).not.toContain('experimental');
   });
 });

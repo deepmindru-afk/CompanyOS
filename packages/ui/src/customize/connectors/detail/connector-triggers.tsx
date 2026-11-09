@@ -2,7 +2,7 @@
 
 import { adminPath } from '../../../lib/routes';
 import type { AdminConnector } from '@kortix/sdk';
-import { useProjectTriggerEventApps, useProjectTriggers } from '@kortix/sdk/react';
+import { useFeatureFlags, useProjectTriggerEventApps, useProjectTriggers } from '@kortix/sdk/react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { UiLink as Link } from '../../../providers/ui-provider';
 import { useState } from 'react';
@@ -23,7 +23,6 @@ import { Button } from '../../../primitives/button';
 import { Label } from '../../../primitives/label';
 import { Skeleton } from '../../../primitives/skeleton';
 import { useTranslations } from '../../../i18n';
-import { useProjectFeatureFlags } from '../../../internal/lib/use-project-feature-flags';
 
 /**
  * Whether the connector's app has events, and the project's event triggers on it.
@@ -31,7 +30,7 @@ import { useProjectFeatureFlags } from '../../../internal/lib/use-project-featur
  * the connector has no events: the tab is absent and no event data is requested.
  */
 export function useConnectorEventTriggers(projectId: string, connector: AdminConnector) {
-  const eventsOn = useProjectFeatureFlags(projectId).flags.event_triggers === true;
+  const eventsOn = useFeatureFlags(projectId).flags.event_triggers === true;
   const apps = useProjectTriggerEventApps(eventsOn ? projectId : null);
   const triggers = useProjectTriggers(projectId);
   const hasEvents =
