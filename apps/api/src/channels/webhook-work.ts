@@ -49,28 +49,45 @@ export async function runWebhookWork(
   work: () => Promise<void>,
   options: { ackWaitMs?: number; releaseOnFailure?: boolean } = {},
 ): Promise<WebhookOutcome> {
+  const ackWaitMs = options.ackWaitMs ?? ACK_WAIT_MS;
+  const startedAt = Date.now();
   const claims = new Set<string>();
   let outcome: WebhookOutcome = 'pending';
   const running = claimScope.run(claims, work).then(
     () => {
       outcome = 'done';
+      // The request answered at the ack budget; how much slower the work ran is
+      // the only record of WHY a webhook's p95 rose (KRTX-4015). >= : finishing
+      // at the budget means the budget did not cover it.
+      const workMs = Date.now() - startedAt;
+      if (ackWaitMs > 0 && workMs >= ackWaitMs) {
+        logger.warn('[webhook-work] work finished after the ack', { label, workMs, ackWaitMs });
+      }
     },
     async (error) => {
       outcome = 'failed';
-      logger.error(`[${label}] handler failed`, { error: error instanceof Error ? error.message : String(error) });
+      logger.error(`[${label}] handler failed`, {
+        error: error instanceof Error ? error.message : String(error),
+        workMs: Date.now() - startedAt,
+      });
       if (options.releaseOnFailure !== false) await releaseClaims(claims);
     },
   );
   trackDetached(running);
-  if ((options.ackWaitMs ?? ACK_WAIT_MS) > 0) {
+  if (ackWaitMs > 0) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       running,
       new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, options.ackWaitMs ?? ACK_WAIT_MS);
+        timer = setTimeout(resolve, ackWaitMs);
       }),
     ]);
     if (timer) clearTimeout(timer);
+    // Still 'pending' here means the timer won: the provider got its ack and
+    // the work outlived it (request logs pin at the budget and say no more).
+    if (outcome === 'pending') {
+      logger.warn('[webhook-work] ack budget elapsed — work still running', { label, ackWaitMs });
+    }
   }
   return outcome;
 }
